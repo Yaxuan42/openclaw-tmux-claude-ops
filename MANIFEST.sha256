@@ -12,7 +12,7 @@ d4f56da43b17cac934fe4828ecfb88994784ec37c66ffa4bbf640dfa142d3fbe  ./docs/archive
 a4d9c4d51bd2a9469e98ef4f6c56e59dab5c2d52daf990d5546b69c45b8d18d3  ./docs/archive/2026-02-14-openclaw-claude-code-public-claude.md
 d25f5476f4f566013d566f3a5b9ad45ca4321f02a84880b0309216a7feec9098  ./skills/claude-code-orchestrator/SKILL.md
 ae3ca86d96264377d6803ac9fcc4305b1cc51a1e71ac25fe8a3beb26ea24ab2c  ./skills/claude-code-orchestrator/scripts/bootstrap.sh
-ab1ba57f9b899e2d2c2d691f7507c366cfc03f252e17aea000ab89926ce07f4d  ./skills/claude-code-orchestrator/scripts/complete-tmux-task.sh
+5f24906e12cc944c4f180cbaf14444d94acf2cbf7a6bbe37058b27f3fb42a651  ./skills/claude-code-orchestrator/scripts/complete-tmux-task.sh
 489209dedd02ff74b596ba3e79b8afd4ebe7911b1a05406e7de648bf13b12423  ./skills/claude-code-orchestrator/scripts/monitor-tmux-task.sh
 adebd5e50061246398627fcd06b5486815462aa668154ea71025c642418e02c8  ./skills/claude-code-orchestrator/scripts/start-tmux-task.sh
 dda1ec3990cae86604549430f93228c6e4809500b5a301dc0b7039ec12122a0e  ./skills/claude-code-orchestrator/scripts/status-tmux-task.sh
