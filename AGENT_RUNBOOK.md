@@ -7,6 +7,14 @@
 - 执行节点：本机（mini）或远程（macbook）
 - tmux session 命名：`cc-<label>`
 
+## 0.5) Bootstrap（首次 clone 后一键检查）
+
+```bash
+bash skills/claude-code-orchestrator/scripts/bootstrap.sh
+# 可选：--dry-run 测试 tmux session 生命周期
+bash skills/claude-code-orchestrator/scripts/bootstrap.sh --dry-run
+```
+
 ## 1) 环境检查（必须先做）
 在 **执行节点**（本机或远程）确认：
 - `tmux` 可用
@@ -68,6 +76,28 @@ bash skills/claude-code-orchestrator/scripts/start-tmux-task.sh \
 - 脚本会自动把 `--prompt-file` scp 到远端 `/tmp/`，避免路径不可达。
 - 交付报告默认写在 `/tmp/cc-<label>-completion-report.{json,md}`。
 
+## 3.5) 零 token 状态检测
+
+在 wake 未收到时，先用零 token 方式检测任务状态：
+
+```bash
+bash skills/claude-code-orchestrator/scripts/status-tmux-task.sh --label <label>
+```
+
+ssh 模式：
+```bash
+bash skills/claude-code-orchestrator/scripts/status-tmux-task.sh --label <label> --target ssh --ssh-host macbook
+```
+
+输出：`STATUS=running|likely_done|stuck|idle|dead|done_session_ended`
+
+决策：
+- `likely_done` / `done_session_ended` → 执行 completion loop
+- `running` → 等待
+- `stuck` → 检查（attach 或 capture-pane）
+- `dead` → session 丢失，执行 complete-tmux-task.sh 兜底
+- `idle` → Claude 可能在等输入，检查
+
 ## 4) 监控与接管
 
 ### 4.1 查看最后 200 行输出
@@ -108,6 +138,19 @@ bash skills/claude-code-orchestrator/scripts/monitor-tmux-task.sh \
 若 wake 已到但报告缺失：
 ```bash
 bash skills/claude-code-orchestrator/scripts/complete-tmux-task.sh --label <label> --workdir <repo_dir>
+```
+
+质量门参数化（可选）：
+```bash
+# 跳过 lint/build（无 package.json 的仓库）
+bash skills/claude-code-orchestrator/scripts/complete-tmux-task.sh \
+  --label <label> --workdir <repo_dir> \
+  --lint-cmd "" --build-cmd ""
+
+# 自定义命令
+bash skills/claude-code-orchestrator/scripts/start-tmux-task.sh \
+  --label <label> --workdir <repo_dir> --prompt-file <file> --task <text> \
+  --lint-cmd "make lint" --build-cmd "make build"
 ```
 
 ## 6) 安全边界（必须遵守）

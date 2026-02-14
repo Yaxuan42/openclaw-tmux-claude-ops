@@ -18,6 +18,22 @@
 
 ---
 
+## Quick Start
+
+```bash
+# 1. Clone
+git clone https://github.com/Yaxuan42/openclaw-tmux-claude-ops.git
+cd openclaw-tmux-claude-ops
+
+# 2. Check environment
+bash skills/claude-code-orchestrator/scripts/bootstrap.sh
+
+# 3. Verify tmux lifecycle (optional)
+bash skills/claude-code-orchestrator/scripts/bootstrap.sh --dry-run
+```
+
+---
+
 ## 项目结构
 
 - `docs/`：

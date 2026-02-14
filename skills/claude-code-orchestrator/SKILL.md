@@ -47,6 +47,22 @@ bash {baseDir}/scripts/monitor-tmux-task.sh --session <session> --lines 200
 - Kill stale Claude processes before restart.
 - Always return: session name + attach command + current status.
 
+## Status check (zero-token)
+
+If wake not received within expected time, check task status before consuming tokens:
+
+```bash
+bash {baseDir}/scripts/status-tmux-task.sh --label <label>
+```
+
+Output: `STATUS=running|likely_done|stuck|idle|dead|done_session_ended`
+
+- `likely_done` / `done_session_ended` → proceed to completion loop
+- `running` → wait
+- `stuck` → inspect (attach or capture-pane)
+- `dead` → session lost, run complete-tmux-task.sh fallback
+- `idle` → Claude may be waiting for input, inspect
+
 ## Completion loop (mandatory)
 
 When wake event "Claude Code done (...)" arrives, complete this loop immediately:

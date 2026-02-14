@@ -5,6 +5,8 @@ LABEL=""
 WORKDIR=""
 PROMPT_FILE=""
 TASK=""
+LINT_CMD="npm run lint"
+BUILD_CMD="npm run build"
 
 TARGET="local"            # local | ssh
 SSH_HOST=""               # required when TARGET=ssh
@@ -22,6 +24,8 @@ while [[ $# -gt 0 ]]; do
     --ssh-host) SSH_HOST="$2"; shift 2 ;;
     --mini-host) MINI_HOST="$2"; shift 2 ;;
     --socket) SOCKET_OVERRIDE="$2"; shift 2 ;;
+    --lint-cmd) LINT_CMD="$2"; shift 2 ;;
+    --build-cmd) BUILD_CMD="$2"; shift 2 ;;
 
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
@@ -112,6 +116,36 @@ if [[ "$TARGET" == "ssh" ]]; then
   REF_PATH="$REMOTE_REF"
 fi
 
+# Build dynamic quality gates
+QUALITY_GATES="1) git status --short
+2) git diff --name-only
+3) git diff --stat"
+GATE_NUM=4
+
+if [[ -n "$LINT_CMD" ]]; then
+  QUALITY_GATES="${QUALITY_GATES}
+${GATE_NUM}) ${LINT_CMD}"
+  GATE_NUM=$((GATE_NUM + 1))
+fi
+
+if [[ -n "$BUILD_CMD" ]]; then
+  QUALITY_GATES="${QUALITY_GATES}
+${GATE_NUM}) ${BUILD_CMD}"
+fi
+
+# Build lint/build JSON hints for the prompt
+if [[ -n "$LINT_CMD" ]]; then
+  LINT_JSON_HINT='"lint": {"ok": true/false, "summary": "..."}'
+else
+  LINT_JSON_HINT='"lint": {"ok": true, "summary": "skipped"}'
+fi
+
+if [[ -n "$BUILD_CMD" ]]; then
+  BUILD_JSON_HINT='"build": {"ok": true/false, "summary": "..."}'
+else
+  BUILD_JSON_HINT='"build": {"ok": true, "summary": "skipped"}'
+fi
+
 cat > "$PROMPT_TMP" <<EOF
 请在当前项目执行以下任务：
 参考文档：$REF_PATH
@@ -119,11 +153,7 @@ cat > "$PROMPT_TMP" <<EOF
 
 【强制交付协议（必须逐条执行）】
 A. 完成开发后，立刻执行并收集结果：
-1) git status --short
-2) git diff --name-only
-3) git diff --stat
-4) npm run lint
-5) npm run build
+$QUALITY_GATES
 
 B. 将交付报告写入以下两个文件：
 - JSON: $REPORT_JSON
@@ -135,8 +165,8 @@ JSON 结构必须包含：
   "workdir": "${WORKDIR}",
   "changedFiles": [...],
   "diffStat": "...",
-  "lint": {"ok": true/false, "summary": "..."},
-  "build": {"ok": true/false, "summary": "..."},
+  $LINT_JSON_HINT,
+  $BUILD_JSON_HINT,
   "risk": "low|medium|high",
   "scopeDrift": true/false,
   "recommendation": "keep|partial_rollback|rollback",
