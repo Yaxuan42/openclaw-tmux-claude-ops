@@ -118,11 +118,21 @@ tmux 的价值非常朴素：
 ## 现状与下一步（真实状态）
 
 这套流程我自己正在用，现阶段的体感是：
-- **触发执行已经比较稳定**（OpenClaw 能把任务启动进 tmux，Claude Code 能在 session 里持续跑）。
-- **“干完自动推送回来”还不够稳**：我目前没有用“定时扫描/轮询”去等回调（担心额外 token 消耗），所以很多时候需要我**人工再招呼 OpenClaw 问进度**：现在卡在哪、有哪些风险点需要关注。
 
-我还在推进的一个进阶能力是：
-- **MacBook ↔ mini 双向 SSH** 打通后，让 OpenClaw 发布任务时可以选择执行节点：
+### ✅ 已经稳定 & 明显改善的
+- **触发执行比较稳定**：OpenClaw 能把任务启动进 tmux，Claude Code 能在 session 里持续跑。
+- **交付物更工程化**：completion report 作为“证据链”逐步成型（diff/质量门/风险）。
+- **并行任务可观测性更强**：新增了脚本级能力，能快速看全局状态：
+  - `bash skills/claude-code-orchestrator/scripts/list-tasks.sh`
+  - `bash skills/claude-code-orchestrator/scripts/list-tasks.sh --json | jq .`
+
+### ⚠️ 仍在打磨的
+- **“干完自动推送回来”仍可能不稳**：wake 可能丢、或者任务完成但你没有第一时间看到。
+  - 现在的缓解方式是：用 `status-tmux-task.sh` / `list-tasks.sh` 主动探测状态，再决定是否需要人工介入。
+
+### 🧭 下一步（我正在推进/建议推进）
+- **回调可靠性闭环**（wake 确认、失败标记、报告存在但未 wake 的补发）。
+- **多设备作为进阶能力**：MacBook ↔ mini 双向 SSH 打通后，让 OpenClaw 发布任务时可以选择执行节点：
   - 跑在 **mini**（全天运行、适合常驻调度）
   - 跑在 **MacBook**（有公司 VPN 和代码库；我不操作时会关掉）
 
