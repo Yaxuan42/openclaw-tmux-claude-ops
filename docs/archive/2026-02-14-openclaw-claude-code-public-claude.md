@@ -1,4 +1,6 @@
-# 我在手机上调度 6 个 Claude Code 进程，工作方式发生了结构性变化
+# （归档）我在手机上调度 6 个 Claude Code 进程，工作方式发生了结构性变化
+
+> 归档说明：这是早期版本文稿；主线最终稿请看 `docs/FINAL.md`。
 
 上周四下午，我在去会议室的路上用 Telegram 发了一句话：
 
@@ -42,7 +44,7 @@ tmux -S /tmp/clawdbot-tmux-sockets/clawdbot.sock attach -t cc-refactor-auth
 
 **第二个：卡住时直接接管**
 
-有一次任务卡在 SSH 权限问题上——Claude Code 不知道怎么处理 `.ssh/config` 的 ProxyJump 配置。我 attach 进去，手动改了一行 config，按回车，Claude Code 接着往下跑了。
+有一次任务卡在权限/环境问题上——Claude Code 卡在某个配置细节里出不来。我 attach 进去，手动改了一处配置，按回车，Claude Code 接着往下跑了。
 
 没有"停掉→重新开→重新描述上下文"的损耗。tmux session 的状态一直在。
 
