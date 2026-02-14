@@ -1,0 +1,288 @@
+# Code Review: P0 Skills Upgrade
+
+> Commit: `ede407b feat(skills): P0 upgrades (param gates, status check, bootstrap)`
+> Reviewer: Claude Code (automated strict review)
+> Date: 2026-02-14
+> Verdict: **Request Changes** (3 bugs, 2 design issues, 1 doc inconsistency)
+
+---
+
+## 1. File-by-File Review
+
+### 1.1 `start-tmux-task.sh` — Quality Gate Parameterization
+
+**Changed**: Added `--lint-cmd` / `--build-cmd` params, dynamic `$QUALITY_GATES` generation, dynamic JSON hint in prompt template.
+
+#### Positive
+- Backward compatible: defaults to `npm run lint` / `npm run build` when not specified.
+- Empty string `""` correctly skips the gate entirely.
+- Numbering logic (`GATE_NUM`) correctly increments.
+
+#### BUG: SSH wake instructions contain unescaped variables (line 60-68)
+
+```bash
+WAKE_INSTRUCTIONS=$(cat <<EOF
+# 1) ...
+scp -q "$REPORT_JSON" "${MINI_HOST}:$REPORT_JSON"
+...
+ssh "$MINI_HOST" 'bash "$WAKE_SCRIPT" "Claude Code done (${LABEL}) report=$REPORT_JSON" now'
+EOF
+)
+```
+
+**Problem**: The inner single-quoted `ssh` command contains `$WAKE_SCRIPT`, `$LABEL`, `$REPORT_JSON` — these are shell variables that will NOT expand inside single quotes on the remote side. The heredoc expands them at definition time (good), but the resulting string has `bash "/path/on/mini/wake.sh"` which is the **local** path, not valid on the remote host where the Claude Code session runs.
+
+**Impact**: SSH-mode wake instructions in the prompt tell Claude Code to run a local-path command that doesn't exist on the remote host. The scp lines work (expanded at definition), but the ssh-back-to-mini line has a path that only exists on mini.
+
+**Severity**: Medium. This is a pre-existing bug, not introduced by this commit, but the commit didn't fix it either.
+
+**Fix**: The wake instruction should use a remote-relative path or the prompt should instruct Claude to `ssh $MINI_HOST 'bash /absolute/path/on/mini/wake.sh ...'` with the correct mini-side path.
+
+#### ISSUE: JSON hint contains `true/false` literal (not valid JSON)
+
+```bash
+LINT_JSON_HINT='"lint": {"ok": true/false, "summary": "..."}'
+```
+
+This is a _prompt hint_ for Claude, not actual JSON. As a prompt it's acceptable — Claude understands `true/false` as "pick one". However, it's mildly confusing: a literal-minded agent might emit `true/false` as a string. This is low-risk since Claude handles it well in practice.
+
+**Severity**: Low.
+
+#### ISSUE: Proxy hardcoded (pre-existing, not introduced here)
+
+Lines 190-194 hardcode `127.0.0.1:6152` / `6153`. Not introduced by this commit but worth noting as a coupling point.
+
+---
+
+### 1.2 `complete-tmux-task.sh` — Parameterized Quality Gates
+
+**Changed**: Added `--lint-cmd` / `--build-cmd`, skip-when-empty logic, bash-to-Python boolean conversion.
+
+#### Positive
+- Clean skip logic: `lint_out="skipped"` default, only runs command if non-empty.
+- Python boolean conversion (`py_lint_ok`, `py_build_ok`, `py_scope_drift`) fixes a real bug: bash `true`/`false` are not Python `True`/`False`.
+
+#### BUG: Shell variable injection in Python heredoc (lines 73-89)
+
+```bash
+python3 - <<PY > "$REPORT_JSON"
+import json
+changed = '''$changed_files'''.strip().splitlines() if '''$changed_files'''.strip() else []
+obj = {
+  ...
+  "diffStat": '''$diff_stat''',
+  "lint": {"ok": $py_lint_ok, "summary": '''$lint_out'''[:4000]},
+  "build": {"ok": $py_build_ok, "summary": '''$build_out'''[:4000]},
+  ...
+}
+print(json.dumps(obj, ensure_ascii=False, indent=2))
+PY
+```
+
+**Problem**: Shell variables `$diff_stat`, `$lint_out`, `$build_out` are interpolated directly into Python triple-quoted strings. If any of these contain `'''` (three consecutive single quotes), the Python string will break, causing a syntax error and no JSON output.
+
+**Concrete scenario**: A lint output containing `'''` (possible in Python docstrings, Markdown, or error messages that quote code) will crash the JSON generation.
+
+**Severity**: Medium. The probability depends on the repo content; for this repo (shell scripts + markdown) it's low, but for Python repos it's a real risk.
+
+**Fix (recommended)**: Use `jq` instead of Python, or pass variables via environment/temp files:
+
+```bash
+# Option A: jq (no Python dependency)
+jq -n \
+  --arg label "$LABEL" \
+  --arg workdir "$WORKDIR" \
+  --argjson lint_ok "$([[ "$lint_ok" == true ]] && echo true || echo false)" \
+  --arg lint_summary "$lint_out" \
+  --argjson build_ok "$([[ "$build_ok" == true ]] && echo true || echo false)" \
+  --arg build_summary "$build_out" \
+  --arg diff_stat "$diff_stat" \
+  --arg risk "$risk" \
+  --argjson scope_drift "$([[ "$scope_drift" == true ]] && echo true || echo false)" \
+  --arg recommendation "$recommendation" \
+  '{label: $label, workdir: $workdir, changedFiles: ($ARGS.positional // []),
+    diffStat: $diff_stat,
+    lint: {ok: $lint_ok, summary: $lint_summary},
+    build: {ok: $build_ok, summary: $build_summary},
+    risk: $risk, scopeDrift: $scope_drift,
+    recommendation: $recommendation,
+    notes: "Generated by complete-tmux-task.sh"}' \
+  --args -- $changed_files > "$REPORT_JSON"
+
+# Option B: write vars to temp files, read in Python
+echo "$lint_out" > /tmp/_lint_out.txt
+echo "$build_out" > /tmp/_build_out.txt
+# Then in Python: open('/tmp/_lint_out.txt').read()
+```
+
+#### BUG: `$LINT_CMD` evaluated without proper quoting (line 46)
+
+```bash
+if ! lint_out="$($LINT_CMD 2>&1)"; then
+```
+
+**Problem**: `$LINT_CMD` is not quoted, but it's used inside `$()` where word splitting applies. If someone passes `--lint-cmd "make -j4 lint"`, it works because `$()` runs via shell. However, if `LINT_CMD` contains special characters (e.g., `&&`, `|`, `;`), it will execute as a shell expression — which is actually correct behavior for a "command" parameter, but it does mean that the input is **not sanitized**.
+
+**Severity**: Low. The callers are trusted (this is an internal orchestration tool), and supporting compound commands is arguably a feature. But it's worth documenting that `--lint-cmd` is evaluated as a shell expression.
+
+---
+
+### 1.3 `status-tmux-task.sh` — Zero-Token Status Detection (NEW)
+
+**Overall quality**: Good. Clean structure, correct early-exit logic, appropriate fallback to `rg` pattern matching.
+
+#### BUG: SSH mode report existence check is local-only (line 35)
+
+```bash
+report_exists=false
+if [[ -f "$REPORT_JSON" ]]; then
+  report_exists=true
+fi
+```
+
+**Problem**: When `TARGET=ssh`, the report file lives on the **remote** host, but this check uses local `[[ -f ]]`. The report won't be found locally until it's been scp'd back.
+
+**Severity**: High for SSH mode. The status check will incorrectly report `dead` or `running` instead of `done_session_ended` or `likely_done` when the task has completed on the remote but the report hasn't been copied back yet.
+
+**Fix**:
+```bash
+report_exists=false
+if [[ "$TARGET" == "ssh" ]]; then
+  ssh -o BatchMode=yes "$SSH_HOST" "test -f '$REPORT_JSON'" 2>/dev/null && report_exists=true
+else
+  [[ -f "$REPORT_JSON" ]] && report_exists=true
+fi
+```
+
+#### ISSUE: `rg` dependency for pattern matching
+
+The `stuck` detection pattern `"✗|Error:|FAILED|fatal:"` has false positive risk:
+- `Error:` matches any line containing "Error:" in Claude's output (including error messages being _discussed_ or _read_, not actual failures).
+- `fatal:` matches git error messages that Claude might be displaying as part of normal investigation.
+
+**Severity**: Low. Misclassifying `running` as `stuck` causes no harm — the caller will inspect and see it's fine.
+
+#### ISSUE: `--ssh-host` required but not validated
+
+When `--target ssh` is passed but `--ssh-host` is omitted, the script will attempt `ssh ""` which fails with a confusing error. Should validate:
+
+```bash
+if [[ "$TARGET" == "ssh" && -z "$SSH_HOST" ]]; then
+  echo "ERROR: --target ssh requires --ssh-host"; exit 1
+fi
+```
+
+**Severity**: Low (UX issue).
+
+---
+
+### 1.4 `bootstrap.sh` — Environment Self-Check (NEW)
+
+**Overall quality**: Good. Clean, idempotent, no side effects in normal mode.
+
+#### ISSUE: `claude --version` may hang or produce unexpected output
+
+```bash
+version="$("$tool" --version 2>/dev/null | head -1 || echo "ok")"
+```
+
+Some tools (including `claude`) may not respond to `--version` in the expected way, or may take a long time. Adding a timeout would be safer:
+
+```bash
+version="$(timeout 5 "$tool" --version 2>/dev/null | head -1 || echo "ok")"
+```
+
+**Severity**: Low.
+
+#### Positive
+- `set -euo pipefail` is correct.
+- `BASH_SOURCE[0]` for script directory resolution is correct.
+- Dry-run creates and destroys cleanly, won't pollute state.
+- Uses `[SKIP]` for missing scripts instead of failing — appropriate for bootstrap.
+
+#### ISSUE: Dry-run doesn't clean up on failure
+
+If `tmux -S "$SOCKET" new ...` succeeds but the `has-session` check fails, the session is left dangling. Should add a `trap` for cleanup:
+
+```bash
+if [[ "$DRY_RUN" == true ]]; then
+  trap 'tmux -S "$SOCKET" kill-session -t "$TEST_SESSION" 2>/dev/null || true' EXIT
+  ...
+fi
+```
+
+**Severity**: Low. The session name is fixed (`cc-bootstrap-test`) so re-running will clean up.
+
+---
+
+### 1.5 Documentation Files
+
+#### `SKILL.md`
+- Status check section is well-structured and matches the script's actual output values.
+- Correctly placed before "Completion loop (mandatory)" section.
+- **OK**: Documentation matches implementation.
+
+#### `AGENT_RUNBOOK.md`
+- Bootstrap section (0.5) correctly placed.
+- Status check section (3.5) has correct examples for both local and SSH modes.
+- Quality gate parameterization examples are correct.
+- **Minor inconsistency (line 151-153)**: The "custom command" example uses `start-tmux-task.sh` instead of `complete-tmux-task.sh` — this shows `--lint-cmd "make lint"` on `start-tmux-task.sh` which is correct (start uses it for prompt generation), but the section is titled under "完成与报告" which implies it should show `complete-tmux-task.sh`. Slightly confusing but not wrong.
+
+#### `README.md`
+- Quick Start section is clean and useful.
+- **OK**: Matches implementation.
+
+#### `AGENT_TASK_SKILLS_UPGRADE.md` (NEW)
+- This is the task specification doc. It's comprehensive and well-structured.
+- It's a planning/spec document, not code, so no bugs per se.
+
+#### `docs/SKILLS_EVOLUTION.md` (NEW)
+- Evaluation report. Well-organized with priority tiers.
+- Accurate assessment of the current state.
+- **OK**: Consistent with what was implemented.
+
+---
+
+## 2. Potential Bugs / Design Defects Summary
+
+| # | File | Severity | Description | Fix Suggested |
+|---|------|----------|-------------|---------------|
+| 1 | `complete-tmux-task.sh:73-89` | **Medium** | Python heredoc triple-quote injection risk | Use `jq` or temp files |
+| 2 | `status-tmux-task.sh:34-37` | **High (SSH)** | Report existence check is local-only, breaks SSH mode | Use `ssh test -f` for remote |
+| 3 | `status-tmux-task.sh` | **Low** | Missing `--ssh-host` validation when `--target ssh` | Add guard clause |
+| 4 | `start-tmux-task.sh:60-68` | **Medium** | SSH wake instructions path is local-only (pre-existing) | Document or fix path resolution |
+| 5 | `bootstrap.sh` | **Low** | No `trap` cleanup in dry-run on partial failure | Add EXIT trap |
+| 6 | `status-tmux-task.sh:69` | **Low** | `Error:` / `fatal:` false positive in stuck detection | Tighten regex or deprioritize vs running signals |
+
+---
+
+## 3. Overall Assessment
+
+### What works well
+- **Backward compatibility**: All new parameters have sensible defaults; existing callers are unaffected.
+- **Architecture**: Three new capabilities (param gates, status check, bootstrap) are cleanly separated into distinct files/features.
+- **Documentation**: SKILL.md, AGENT_RUNBOOK, and README are all updated and consistent with the implementation.
+- **Boolean conversion fix**: The `py_lint_ok` / `py_build_ok` conversion from bash to Python booleans fixes a real bug in the original code.
+
+### What needs attention
+- **SSH mode is undertested**: The `status-tmux-task.sh` report check bug (item #2) will cause incorrect status in SSH mode.
+- **JSON generation fragility**: The Python heredoc approach (item #1) is a ticking time bomb for repos with complex output. This should be addressed in a follow-up (P1-2 in SKILLS_EVOLUTION.md already identifies this).
+
+### Verdict: **Request Changes**
+
+The commit is directionally correct and delivers the three P0 features as designed. However, the SSH-mode report check bug in `status-tmux-task.sh` is a functional defect that should be fixed before merge. The Python heredoc issue is a known risk (documented in P1-2) and can be deferred, but should be tracked.
+
+**Recommended actions**:
+1. **Fix now**: `status-tmux-task.sh` — add remote `test -f` for SSH mode report check.
+2. **Fix now**: `status-tmux-task.sh` — add `--ssh-host` validation guard.
+3. **Track for P1**: `complete-tmux-task.sh` — migrate JSON generation from Python heredoc to `jq`.
+4. **Track for P1**: `bootstrap.sh` — add EXIT trap for dry-run cleanup.
+
+---
+
+## 4. Review Metadata
+
+- **Files reviewed**: 9 (all files in commit)
+- **Review method**: `git diff ede407b~1..ede407b` + reading current file state
+- **Time**: Automated single-pass review
+- **Approach**: Line-by-line diff analysis with focus on shell correctness, edge cases, and SSH mode robustness

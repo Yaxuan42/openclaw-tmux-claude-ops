@@ -38,6 +38,33 @@ bash {baseDir}/scripts/monitor-tmux-task.sh --attach --session <session>
 bash {baseDir}/scripts/monitor-tmux-task.sh --session <session> --lines 200
 ```
 
+## Task overview
+
+List all running `cc-*` tasks at a glance — useful for "butler-style" summaries.
+
+```bash
+# Human-readable one-liner per task
+bash {baseDir}/scripts/list-tasks.sh
+
+# Structured JSON array (pipe to jq, feed to OpenClaw, etc.)
+bash {baseDir}/scripts/list-tasks.sh --json | jq .
+```
+
+Options:
+- `--lines <n>` — number of trailing pane lines to capture per task (default 20).
+- `--socket <path>` — tmux socket path (default `$TMPDIR/clawdbot-tmux-sockets/clawdbot.sock`).
+- `--json` — emit JSON array instead of human table.
+- `--target ssh --ssh-host <alias>` — list sessions on a remote host.
+
+Each entry contains: **label**, **session**, **status**, **sessionAlive**, **reportExists**, **reportJsonPath**, **lastLines**, **updatedAt**.
+
+Combine with OpenClaw to generate a periodic butler summary:
+```
+# In an OpenClaw prompt / cron:
+bash {baseDir}/scripts/list-tasks.sh --json | \
+  openclaw gateway call summarize-tasks --stdin
+```
+
 ## Rules
 
 - Prefer interactive Claude in tmux for visibility (not long `claude -p` one-shot for large tasks).

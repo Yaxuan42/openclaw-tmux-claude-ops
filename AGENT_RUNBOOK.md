@@ -98,6 +98,38 @@ bash skills/claude-code-orchestrator/scripts/status-tmux-task.sh --label <label>
 - `dead` → session 丢失，执行 complete-tmux-task.sh 兜底
 - `idle` → Claude 可能在等输入，检查
 
+## 3.8) 任务总览（list-tasks）
+
+一键列出所有 `cc-*` session 状态，适合定期巡检或生成管家式总结。
+
+### human-readable
+```bash
+bash skills/claude-code-orchestrator/scripts/list-tasks.sh
+```
+
+### JSON（供 OpenClaw / jq 消费）
+```bash
+bash skills/claude-code-orchestrator/scripts/list-tasks.sh --json | jq .
+```
+
+### ssh 远程
+```bash
+bash skills/claude-code-orchestrator/scripts/list-tasks.sh --target ssh --ssh-host macbook --json
+```
+
+参数：
+- `--lines <n>`：每个 session 抓取最后 N 行输出（默认 20）
+- `--socket <path>`：指定 tmux socket
+- `--json`：输出 JSON 数组
+- `--target ssh --ssh-host <alias>`：列远端 session
+
+字段说明：label, session, status, sessionAlive, reportExists, reportJsonPath, lastLines, updatedAt。
+
+决策：
+- 无 `cc-*` session → 返回空列表 / 友好提示
+- 某 session capture 失败 → 跳过该 session，不中断整体
+- status 脚本返回 error → 标记 `status=unknown`，保留 error 字段
+
 ## 4) 监控与接管
 
 ### 4.1 查看最后 200 行输出

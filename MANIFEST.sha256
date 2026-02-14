@@ -1,5 +1,5 @@
 9d361a4543a10de0fd72d76bfa4929b2e39dfe17bf794ed7b38a0263aabc4743  ./.DS_Store
-42d0f8697347a0b89f7240a19f69935cc05430b4aa8dd808c5fc80a9eb9200ef  ./AGENT_RUNBOOK.md
+4fd726e848e877035e39c7d5492d68caacf40fe0a36652f18667ec79305ac786  ./AGENT_RUNBOOK.md
 c0f2fa4035a5a7a0f45860a964e5c1396d8246a2b97381643810f8421796fa01  ./AGENT_TASK_SKILLS_UPGRADE.md
 be725f9c4cd54f5eae92f4056e265b62ff966c97284667fd59bfad714d3ab44c  ./MANIFEST.sha256
 2e96bf69401bca76576a886bca957a3f7da46e03362c7bfba1b48c8ac68edd37  ./README.md
@@ -10,7 +10,8 @@ df85e7dede134332a11cc0b407374878d0aadfecc34009ddea4f3ba83567662f  ./docs/archive
 9d00c99e4f6cc4149c42bc1baa8ce807018793168fbbbd1151cd84db36a66036  ./docs/archive/2026-02-14-openclaw-claude-code-internal-claude.md
 d4f56da43b17cac934fe4828ecfb88994784ec37c66ffa4bbf640dfa142d3fbe  ./docs/archive/2026-02-14-openclaw-claude-code-public-aki.md
 a4d9c4d51bd2a9469e98ef4f6c56e59dab5c2d52daf990d5546b69c45b8d18d3  ./docs/archive/2026-02-14-openclaw-claude-code-public-claude.md
-d25f5476f4f566013d566f3a5b9ad45ca4321f02a84880b0309216a7feec9098  ./skills/claude-code-orchestrator/SKILL.md
+f1d84e55233d58960bd3d35f7065e6d4ed77417091ee9116ae9271a4139812ee  ./skills/claude-code-orchestrator/SKILL.md
+a5785a027efc759fe9d7879f6d473b2b5b758112c17c6c6690c76e4b721efbfb  ./skills/claude-code-orchestrator/scripts/list-tasks.sh
 ae3ca86d96264377d6803ac9fcc4305b1cc51a1e71ac25fe8a3beb26ea24ab2c  ./skills/claude-code-orchestrator/scripts/bootstrap.sh
 5f24906e12cc944c4f180cbaf14444d94acf2cbf7a6bbe37058b27f3fb42a651  ./skills/claude-code-orchestrator/scripts/complete-tmux-task.sh
 489209dedd02ff74b596ba3e79b8afd4ebe7911b1a05406e7de648bf13b12423  ./skills/claude-code-orchestrator/scripts/monitor-tmux-task.sh
