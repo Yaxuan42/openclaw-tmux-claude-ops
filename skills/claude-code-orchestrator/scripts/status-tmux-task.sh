@@ -18,7 +18,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -n "$LABEL" ]] || { echo "Usage: $0 --label <label> [--session cc-xxx] [--socket path]"; exit 1; }
+[[ -n "$LABEL" ]] || { echo "Usage: $0 --label <label> [--session cc-xxx] [--socket path] [--target local|ssh --ssh-host <alias>]"; exit 1; }
+if [[ "$TARGET" == "ssh" && -z "$SSH_HOST" ]]; then
+  echo "ERROR: --target ssh requires --ssh-host <alias>"
+  exit 2
+fi
+
 SESSION="${SESSION:-cc-${LABEL}}"
 REPORT_JSON="/tmp/${SESSION}-completion-report.json"
 
@@ -32,8 +37,10 @@ fi
 
 # 2. Check if report exists
 report_exists=false
-if [[ -f "$REPORT_JSON" ]]; then
-  report_exists=true
+if [[ "$TARGET" == "ssh" ]]; then
+  ssh -o BatchMode=yes "$SSH_HOST" "test -f '$REPORT_JSON'" 2>/dev/null && report_exists=true
+else
+  [[ -f "$REPORT_JSON" ]] && report_exists=true
 fi
 
 # 3. If session dead and no report → dead
