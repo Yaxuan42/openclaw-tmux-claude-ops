@@ -18,10 +18,13 @@
 
 ## 仓库内容
 
-- `docs/`：4 份分享稿（内部/对外 × Aki/Claude）
+- `docs/`：
+  - [docs/INDEX.md](./docs/INDEX.md)（索引，含最终版 + 4 份归档）
+  - [docs/FINAL.md](./docs/FINAL.md)（融合版最终稿）
+  - 4 份分享稿归档（内部/对外 × Aki/Claude）
 - `skills/claude-code-orchestrator/`：tmux 编排脚本（local/ssh 都支持）
-- `HUMAN_README.md`：解释 OpenClaw（主 Agent）如何承担“管家 + CTO”的调度角色
-- `AGENT_RUNBOOK.md`：可直接交给 Agent 执行的逐步 Runbook
+- [HUMAN_README.md](./HUMAN_README.md)：给人看的（意义/方式变化 + 主 Agent 角色）
+- [AGENT_RUNBOOK.md](./AGENT_RUNBOOK.md)：给 agent 看的（可执行 Runbook）
 - `MANIFEST.sha256`：校验
 
 ---
