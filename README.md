@@ -1,5 +1,7 @@
 # OpenClaw × Claude Code × tmux：把并行 AI 执行变成“可调度作业系统”
 
+[English README](./README.en.md)
+
 这个仓库刻意分成两套阅读路径：
 
 - **给人看的（意义 / 方式变化 / 典型场景）**：你读完会明白为什么需要 *OpenClaw 作为主 Agent*，以及 tmux 为什么是并行 AI 工作流的结构件。
