@@ -16,7 +16,7 @@
 - 最终分享稿（主线）：[`docs/FINAL.md`](./docs/FINAL.md)
 - Agent 执行手册（主线）：[`AGENT_RUNBOOK.md`](./AGENT_RUNBOOK.md)
 - 归档草稿：`docs/archive/`
-- 技能脚本：`skills/claude-code-orchestrator/`
+- 技能脚本：`skills/claude-code-orchestrator/`（推荐） / `skills/claude-code/`（Deprecated 兼容）
 
 ---
 

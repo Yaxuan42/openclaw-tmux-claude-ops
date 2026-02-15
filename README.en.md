@@ -16,7 +16,7 @@ This repo intentionally supports **two reading paths**:
 - Final article (main narrative): [`docs/FINAL.md`](./docs/FINAL.md)
 - Agent runbook (main): [`AGENT_RUNBOOK.md`](./AGENT_RUNBOOK.md)
 - Archived drafts: `docs/archive/`
-- Skill scripts: `skills/claude-code-orchestrator/`
+- Skill scripts: `skills/claude-code-orchestrator/` (recommended) / `skills/claude-code/` (deprecated alias)
 
 ---
 

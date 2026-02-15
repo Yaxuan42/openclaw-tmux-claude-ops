@@ -1,5 +1,5 @@
 ---
-name: claude-code
+name: claude-code-orchestrator
 description: Trigger Claude Code development tasks in observable tmux sessions with stable startup, progress visibility, and completion callback to OpenClaw. Use when user asks to run coding work via Claude Code and wants to SSH in, monitor progress, and get auto-notified for review after completion.
 ---
 
