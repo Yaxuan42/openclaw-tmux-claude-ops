@@ -5,8 +5,8 @@ LABEL=""
 WORKDIR=""
 PROMPT_FILE=""
 TASK=""
-LINT_CMD="npm run lint"
-BUILD_CMD="npm run build"
+LINT_CMD=""
+BUILD_CMD=""
 
 TARGET="local"            # local | ssh
 SSH_HOST=""               # required when TARGET=ssh
@@ -187,11 +187,25 @@ fi
 # Start tmux + claude interactive
 if [[ "$TARGET" == "ssh" ]]; then
   ssh -o BatchMode=yes "$SSH_HOST" "tmux -S '$SOCKET' new -d -s '$SESSION' -n shell"
-  ssh -o BatchMode=yes "$SSH_HOST" "tmux -S '$SOCKET' send-keys -t '$SESSION':0.0 -l -- 'cd $WORKDIR && export https_proxy=http://127.0.0.1:6152 http_proxy=http://127.0.0.1:6152 all_proxy=socks5://127.0.0.1:6153 && claude --dangerously-skip-permissions'"
+  # Build proxy passthrough: only forward env vars that are already set
+  PROXY_EXPORT=""
+  for _pvar in https_proxy http_proxy all_proxy HTTPS_PROXY HTTP_PROXY ALL_PROXY; do
+    if [[ -n "${!_pvar:-}" ]]; then
+      PROXY_EXPORT="${PROXY_EXPORT}export ${_pvar}='${!_pvar}'; "
+    fi
+  done
+  ssh -o BatchMode=yes "$SSH_HOST" "tmux -S '$SOCKET' send-keys -t '$SESSION':0.0 -l -- 'cd $WORKDIR && ${PROXY_EXPORT}claude --dangerously-skip-permissions'"
   ssh -o BatchMode=yes "$SSH_HOST" "tmux -S '$SOCKET' send-keys -t '$SESSION':0.0 Enter"
 else
   tmux -S "$SOCKET" new -d -s "$SESSION" -n shell
-  tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -l -- "cd $WORKDIR && export https_proxy=http://127.0.0.1:6152 http_proxy=http://127.0.0.1:6152 all_proxy=socks5://127.0.0.1:6153 && claude --dangerously-skip-permissions"
+  # Build proxy passthrough: only forward env vars that are already set
+  PROXY_EXPORT=""
+  for _pvar in https_proxy http_proxy all_proxy HTTPS_PROXY HTTP_PROXY ALL_PROXY; do
+    if [[ -n "${!_pvar:-}" ]]; then
+      PROXY_EXPORT="${PROXY_EXPORT}export ${_pvar}='${!_pvar}'; "
+    fi
+  done
+  tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -l -- "cd $WORKDIR && ${PROXY_EXPORT}claude --dangerously-skip-permissions"
   tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 Enter
 fi
 

@@ -1,9 +1,34 @@
 ---
 name: claude-code-orchestrator
 description: Trigger Claude Code development tasks in observable tmux sessions with stable startup, progress visibility, and completion callback to OpenClaw. Use when user asks to run coding work via Claude Code and wants to SSH in, monitor progress, and get auto-notified for review after completion.
+metadata:
+  openclaw:
+    requires:
+      bins:
+        required: [tmux, claude, openclaw, rg, jq, python3, git]
+        optional: [ssh, scp, npm, pnpm, yarn]
 ---
 
 # Claude Code Orchestrator (tmux-first)
+
+## Before you run
+
+### Requirements
+- **Required**: `tmux`, `claude` (Claude Code CLI), `openclaw`, `rg` (ripgrep), `jq`, `python3`, `git`
+- **Optional**: `ssh`/`scp` (remote execution only), `npm`/`pnpm`/`yarn` (only if using `--lint-cmd`/`--build-cmd`)
+- Run `bash {baseDir}/scripts/bootstrap.sh` to verify all dependencies.
+
+### Safety & Consent
+- This skill launches `claude --dangerously-skip-permissions` inside a tmux session. It will execute commands in the specified `--workdir` **without interactive confirmation**.
+- **Proxy**: No proxy is set by default. If your shell already has `https_proxy`/`http_proxy`/`all_proxy` set, those values are forwarded into the tmux session.
+- **Lint/Build**: Not run by default. Pass `--lint-cmd` / `--build-cmd` explicitly to enable quality gates.
+- **Remote mode** (`--target ssh`): Uses SSH/SCP to a remote host. Ensure you trust the target and have key-based auth configured.
+
+### Dry-run check
+```bash
+bash {baseDir}/scripts/bootstrap.sh --dry-run
+```
+This verifies dependencies and tests the tmux session lifecycle without running any real task.
 
 Use tmux-based orchestration for long coding tasks to avoid silent hangs and make progress observable.
 

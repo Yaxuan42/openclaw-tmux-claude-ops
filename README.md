@@ -110,9 +110,13 @@ tmux 的价值非常朴素：
 
 ---
 
-## 说明与边界
+## 安全提示
 
-- 主线默认单机即可跑出质变；如果引入远程/多设备执行，请用最小权限控制 SSH key，并在必要时用 `authorized_keys` 的 `command=` 限制回调命令范围。
+- **首次使用前**，请先运行 `bash skills/claude-code-orchestrator/scripts/bootstrap.sh --dry-run` 验证环境依赖和 tmux 会话生命周期。
+- 本技能会在 tmux 中启动 `claude --dangerously-skip-permissions`，即 Claude Code 将在指定工作目录内**自动执行命令**，不会逐条确认。请确保 `--workdir` 指向你信任的 git 仓库。
+- **代理（Proxy）**：脚本默认不设置任何代理。仅当你的 shell 环境中已存在 `https_proxy`/`http_proxy`/`all_proxy` 时，才会将其透传到 tmux 会话中。
+- **Lint/Build**：默认不运行。需要时请显式传入 `--lint-cmd` / `--build-cmd` 参数。
+- 远程模式（`--target ssh`）本质上是远程代码执行。请用最小权限控制 SSH key，并在必要时用 `authorized_keys` 的 `command=` 限制回调命令范围。
 - 强烈建议所有执行都在 git 管控的 repo 内进行，确保可回滚。
 
 ---

@@ -92,9 +92,13 @@ But “parallel management” needs structure — that’s where tmux comes in.
 
 ---
 
-## Notes & Boundaries
+## Security Notes
 
-- Mainline is **single-machine orchestration**. If you add remote/multi-device execution, treat it as remote code execution: least-privilege SSH keys and optional `authorized_keys` command restrictions.
+- **Before first use**, run `bash skills/claude-code-orchestrator/scripts/bootstrap.sh --dry-run` to verify dependencies and test the tmux session lifecycle.
+- This skill launches `claude --dangerously-skip-permissions` inside a tmux session — Claude Code will **execute commands automatically** in the specified workdir without interactive confirmation. Make sure `--workdir` points to a trusted git repository.
+- **Proxy**: No proxy is configured by default. Existing `https_proxy`/`http_proxy`/`all_proxy` environment variables are forwarded only if already set in your shell.
+- **Lint/Build**: Not run by default. Pass `--lint-cmd` / `--build-cmd` explicitly to enable.
+- Remote mode (`--target ssh`) is essentially remote code execution. Use least-privilege SSH keys and optionally restrict callback commands via `authorized_keys` `command=` restrictions.
 - Keep all work inside git repos for rollback.
 
 ---
