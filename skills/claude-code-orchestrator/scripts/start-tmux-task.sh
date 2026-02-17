@@ -7,6 +7,7 @@ PROMPT_FILE=""
 TASK=""
 LINT_CMD="npm run lint"
 BUILD_CMD="npm run build"
+MODE="interactive"       # interactive | headless
 
 TARGET="local"            # local | ssh
 SSH_HOST=""               # required when TARGET=ssh
@@ -19,6 +20,7 @@ while [[ $# -gt 0 ]]; do
     --workdir) WORKDIR="$2"; shift 2 ;;
     --prompt-file) PROMPT_FILE="$2"; shift 2 ;;
     --task) TASK="$2"; shift 2 ;;
+    --mode) MODE="$2"; shift 2 ;;
 
     --target) TARGET="$2"; shift 2 ;;
     --ssh-host) SSH_HOST="$2"; shift 2 ;;
@@ -32,12 +34,17 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$LABEL" && -n "$WORKDIR" && -n "$PROMPT_FILE" && -n "$TASK" ]] || {
-  echo "Usage: $0 --label <label> --workdir <dir> --prompt-file <file> --task <text> [--target local|ssh --ssh-host <alias> --mini-host <alias>]"
+  echo "Usage: $0 --label <label> --workdir <dir> --prompt-file <file> --task <text> [--mode interactive|headless] [--target local|ssh --ssh-host <alias> --mini-host <alias>]"
   exit 1
 }
 
 if [[ "$TARGET" == "ssh" && -z "$SSH_HOST" ]]; then
   echo "ERROR: --target ssh requires --ssh-host <alias>"
+  exit 2
+fi
+
+if [[ "$MODE" == "headless" && "$TARGET" == "ssh" ]]; then
+  echo "ERROR: headless mode currently only supports --target local"
   exit 2
 fi
 
@@ -55,9 +62,11 @@ SESSION="cc-${LABEL}"
 PROMPT_TMP="/tmp/${SESSION}-prompt.txt"
 REPORT_JSON="/tmp/${SESSION}-completion-report.json"
 REPORT_MD="/tmp/${SESSION}-completion-report.md"
+STREAM_LOG="/tmp/${SESSION}-stream.jsonl"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WAKE_SCRIPT="$SCRIPT_DIR/wake.sh"
+COMPLETE_SCRIPT="$SCRIPT_DIR/complete-tmux-task.sh"
 
 # Wake instructions differ for local vs remote execution.
 WAKE_INSTRUCTIONS="bash \"$WAKE_SCRIPT\" \"Claude Code done (${LABEL}) report=$REPORT_JSON\" now"
@@ -101,7 +110,7 @@ if [[ "$TARGET" == "ssh" ]]; then
   ssh -o BatchMode=yes "$SSH_HOST" "mkdir -p '$SOCKET_DIR'"
 fi
 
-# Kill old session if exists
+# Kill old session if exists (both modes use tmux)
 if [[ "$TARGET" == "ssh" ]]; then
   if ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; tmux -S '$SOCKET' has-session -t '$SESSION'" >/dev/null 2>&1; then
     ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; tmux -S '$SOCKET' kill-session -t '$SESSION'"
@@ -150,6 +159,74 @@ if [[ -n "$BUILD_CMD" ]]; then
 else
   BUILD_JSON_HINT='"build": {"ok": true, "summary": "skipped"}'
 fi
+
+# ══════════════════════════════════════════════════════════════════════
+# HEADLESS MODE: claude -p with stream-json output
+# ══════════════════════════════════════════════════════════════════════
+if [[ "$MODE" == "headless" ]]; then
+
+  # Headless prompt: same delivery protocol but no wake instruction
+  # (wake is triggered automatically after claude -p exits)
+  cat > "$PROMPT_TMP" <<EOF
+请在当前项目执行以下任务：
+参考文档：$REF_PATH
+任务要求：$TASK
+
+【强制交付协议（必须逐条执行）】
+A. 完成开发后，立刻执行并收集结果：
+$QUALITY_GATES
+
+B. 将交付报告写入以下两个文件：
+- JSON: $REPORT_JSON
+- Markdown: $REPORT_MD
+
+JSON 结构必须包含：
+{
+  "label": "${LABEL}",
+  "workdir": "${WORKDIR}",
+  "changedFiles": [...],
+  "diffStat": "...",
+  $LINT_JSON_HINT,
+  $BUILD_JSON_HINT,
+  "risk": "low|medium|high",
+  "scopeDrift": true/false,
+  "recommendation": "keep|partial_rollback|rollback",
+  "notes": "..."
+}
+
+注意：完成报告写入后即可结束，不需要执行其他命令。
+EOF
+
+  # Run claude -p in a tmux session (so list-tasks.sh / status can find it)
+  tmux -S "$SOCKET" new -d -s "$SESSION" -n shell
+
+  # Build the headless command: claude -p reads from prompt file, outputs stream-json
+  HEADLESS_CMD="unset CLAUDECODE && cd '$WORKDIR' && claude -p \"\$(cat '$PROMPT_TMP')\" --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 | tee '$STREAM_LOG'"
+
+  # After claude -p finishes: run complete-tmux-task.sh as fallback if no report,
+  # then trigger wake, then exit tmux session
+  POST_CMD=""
+  POST_CMD+=" ; EXIT_CODE=\$?"
+  POST_CMD+=" ; echo \"CLAUDE_EXIT_CODE=\$EXIT_CODE\" >> '$STREAM_LOG'"
+  POST_CMD+=" ; if [ ! -f '$REPORT_JSON' ]; then bash '$COMPLETE_SCRIPT' --label '$LABEL' --workdir '$WORKDIR' --lint-cmd '${LINT_CMD}' --build-cmd '${BUILD_CMD}' --no-wake; fi"
+  POST_CMD+=" ; bash '$WAKE_SCRIPT' 'Claude Code done (${LABEL}) report=$REPORT_JSON' now"
+  POST_CMD+=" ; exit 0"
+
+  tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -l -- "${HEADLESS_CMD}${POST_CMD}"
+  tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 Enter
+
+  echo "MODE=headless"
+  echo "TARGET=local"
+  echo "SOCKET=$SOCKET"
+  echo "SESSION=$SESSION"
+  echo "STREAM_LOG=$STREAM_LOG"
+  echo "ATTACH: tmux -S \"$SOCKET\" attach -t \"$SESSION\""
+  exit 0
+fi
+
+# ══════════════════════════════════════════════════════════════════════
+# INTERACTIVE MODE (default): claude in tmux with send-keys paste
+# ══════════════════════════════════════════════════════════════════════
 
 cat > "$PROMPT_TMP" <<EOF
 请在当前项目执行以下任务：
@@ -259,6 +336,7 @@ if [[ "$submitted" != true ]]; then
   echo "WARN: prompt submit not confidently detected; session may need manual Enter once"
 fi
 
+echo "MODE=interactive"
 if [[ "$TARGET" == "ssh" ]]; then
   echo "TARGET=ssh"
   echo "SSH_HOST=$SSH_HOST"
