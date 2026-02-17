@@ -7,6 +7,15 @@ description: Trigger Claude Code development tasks in observable tmux sessions w
 
 Use tmux-based orchestration for long coding tasks to avoid silent hangs and make progress observable.
 
+## Default Project Directory
+
+**新项目默认创建在：**
+```
+/Users/yingze/Library/Mobile Documents/iCloud~md~obsidian/Documents/Ed_Brain/AI/
+```
+
+除非用户明确指定其他目录，否则所有新项目都放在这里。
+
 ## Standard workflow
 
 1. Create prompt file (avoid long shell quote issues).
@@ -40,7 +49,7 @@ bash {baseDir}/scripts/monitor-tmux-task.sh --session <session> --lines 200
 
 ## Task overview
 
-List all running `cc-*` tasks at a glance — useful for "butler-style" summaries.
+List all running `cc-*` tasks at a glance - useful for "butler-style" summaries.
 
 ```bash
 # Human-readable one-liner per task
@@ -51,10 +60,10 @@ bash {baseDir}/scripts/list-tasks.sh --json | jq .
 ```
 
 Options:
-- `--lines <n>` — number of trailing pane lines to capture per task (default 20).
-- `--socket <path>` — tmux socket path (default `$TMPDIR/clawdbot-tmux-sockets/clawdbot.sock`).
-- `--json` — emit JSON array instead of human table.
-- `--target ssh --ssh-host <alias>` — list sessions on a remote host.
+- `--lines <n>` - number of trailing pane lines to capture per task (default 20).
+- `--socket <path>` - tmux socket path (default `$TMPDIR/clawdbot-tmux-sockets/clawdbot.sock`).
+- `--json` - emit JSON array instead of human table.
+- `--target ssh --ssh-host <alias>` - list sessions on a remote host.
 
 Each entry contains: **label**, **session**, **status**, **sessionAlive**, **reportExists**, **reportJsonPath**, **lastLines**, **updatedAt**.
 
@@ -120,10 +129,99 @@ Do not stop at wake-only notification. Wake is trigger, not final delivery.
 
 ## Hard guardrails added
 
-- Prompt now enforces “no wake without report”:
+- Prompt now enforces "no wake without report":
   - task must write `/tmp/cc-<label>-completion-report.json` + `.md`
   - final wake must include `report=<json_path>`
 - Recovery command exists for deterministic fallback:
   - `scripts/complete-tmux-task.sh` reproduces evidence and emits structured report
 - Delivery SLA remains mandatory:
   - wake received -> ack <= 60s -> report
+
+---
+
+## 闭环反馈系统（新增）
+
+任务执行现在会自动记录历史和执行日志，用于持续优化派活策略。
+
+### 执行日志捕获
+
+启动任务时会自动在后台运行 `capture-execution.sh`，捕获：
+- 执行状态变化（thinking → executing → success/error）
+- 工具调用成功/失败事件
+- 执行时长和错误统计
+
+日志文件：
+- `/tmp/cc-<label>-execution-events.jsonl` — 事件流
+- `/tmp/cc-<label>-execution-summary.json` — 执行摘要
+
+### 任务历史记录
+
+每次任务完成后，`complete-tmux-task.sh` 会自动记录到：
+- `{baseDir}/TASK_HISTORY.jsonl`
+
+记录内容：
+```json
+{
+  "timestamp": "2026-02-17T10:00:00Z",
+  "label": "task-name",
+  "workdir": "/path/to/project",
+  "success": true,
+  "failureReason": "",
+  "risk": "low",
+  "durationSeconds": 300,
+  "executionErrors": 0,
+  "filesChanged": 5
+}
+```
+
+### 历史分析
+
+派活前检查历史，获取优化建议：
+
+```bash
+# 文本格式（人类可读）
+bash {baseDir}/scripts/analyze-history.sh
+
+# JSON 格式（程序处理）
+bash {baseDir}/scripts/analyze-history.sh --json
+
+# Markdown 格式（文档输出）
+bash {baseDir}/scripts/analyze-history.sh --markdown
+```
+
+输出包括：
+- 总体成功率统计
+- 最近 7 天趋势
+- 常见失败模式
+- 针对性优化建议
+
+### 派活前检查（推荐流程）
+
+在启动新任务前，先检查历史：
+
+```bash
+bash {baseDir}/scripts/analyze-history.sh
+```
+
+根据分析结果调整任务描述：
+- 如果 lint 失败频繁 → 在任务中增加 `npm install` 步骤
+- 如果超时频繁 → 拆分为更小的子任务
+- 如果成功率 < 80% → 增加任务描述的具体性
+
+### 闭环优化原理
+
+```
+派活 → 执行 → 捕获日志 → 分析失败 → 记录历史 → 优化派活策略
+  ↑                                                    ↓
+  └────────────────── 持续改进 ←──────────────────────┘
+```
+
+核心思想（参考胡渊鸣的实践）：
+- 给 Agent 提供闭环反馈环境
+- 让系统能看到自己做的结果
+- 让系统能分析哪里出了问题
+- 让系统能据此改进
+
+预期效果：
+- 初始成功率：~60-70%
+- 优化后成功率：~90-95%

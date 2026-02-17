@@ -41,11 +41,16 @@ if [[ "$TARGET" == "ssh" && -z "$SSH_HOST" ]]; then
   exit 2
 fi
 
-SOCKET_DIR="${TMPDIR:-/tmp}/clawdbot-tmux-sockets"
+# For SSH target, always use /tmp (remote machine); for local, use $TMPDIR
+if [[ "$TARGET" == "ssh" ]]; then
+  SOCKET_DIR="/tmp/clawdbot-tmux-sockets"
+else
+  SOCKET_DIR="${TMPDIR:-/tmp}/clawdbot-tmux-sockets"
+  mkdir -p "$SOCKET_DIR"
+fi
 SOCKET_DEFAULT="$SOCKET_DIR/clawdbot.sock"
 SOCKET="${SOCKET_OVERRIDE:-$SOCKET_DEFAULT}"
 SESSION="cc-${LABEL}"
-mkdir -p "$SOCKET_DIR"
 
 PROMPT_TMP="/tmp/${SESSION}-prompt.txt"
 REPORT_JSON="/tmp/${SESSION}-completion-report.json"
@@ -77,7 +82,7 @@ fi
 
 tmux_cmd() {
   if [[ "$TARGET" == "ssh" ]]; then
-    ssh -o BatchMode=yes "$SSH_HOST" "$@"
+    ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH; $*"
   else
     bash -lc "$*"
   fi
@@ -85,7 +90,7 @@ tmux_cmd() {
 
 tmux_capture() {
   if [[ "$TARGET" == "ssh" ]]; then
-    ssh -o BatchMode=yes "$SSH_HOST" "$@"
+    ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH; $*"
   else
     bash -lc "$*"
   fi
@@ -98,8 +103,8 @@ fi
 
 # Kill old session if exists
 if [[ "$TARGET" == "ssh" ]]; then
-  if ssh -o BatchMode=yes "$SSH_HOST" "tmux -S '$SOCKET' has-session -t '$SESSION'" >/dev/null 2>&1; then
-    ssh -o BatchMode=yes "$SSH_HOST" "tmux -S '$SOCKET' kill-session -t '$SESSION'"
+  if ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; tmux -S '$SOCKET' has-session -t '$SESSION'" >/dev/null 2>&1; then
+    ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; tmux -S '$SOCKET' kill-session -t '$SESSION'"
   fi
 else
   if tmux -S "$SOCKET" has-session -t "$SESSION" 2>/dev/null; then
@@ -186,12 +191,12 @@ fi
 
 # Start tmux + claude interactive
 if [[ "$TARGET" == "ssh" ]]; then
-  ssh -o BatchMode=yes "$SSH_HOST" "tmux -S '$SOCKET' new -d -s '$SESSION' -n shell"
-  ssh -o BatchMode=yes "$SSH_HOST" "tmux -S '$SOCKET' send-keys -t '$SESSION':0.0 -l -- 'cd $WORKDIR && export https_proxy=http://127.0.0.1:6152 http_proxy=http://127.0.0.1:6152 all_proxy=socks5://127.0.0.1:6153 && claude --dangerously-skip-permissions'"
-  ssh -o BatchMode=yes "$SSH_HOST" "tmux -S '$SOCKET' send-keys -t '$SESSION':0.0 Enter"
+  ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; tmux -S '$SOCKET' new -d -s '$SESSION' -n shell"
+  ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; tmux -S '$SOCKET' send-keys -t '$SESSION':0.0 -l -- 'unset CLAUDECODE && cd $WORKDIR && claude --dangerously-skip-permissions'"
+  ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; tmux -S '$SOCKET' send-keys -t '$SESSION':0.0 Enter"
 else
   tmux -S "$SOCKET" new -d -s "$SESSION" -n shell
-  tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -l -- "cd $WORKDIR && export https_proxy=http://127.0.0.1:6152 http_proxy=http://127.0.0.1:6152 all_proxy=socks5://127.0.0.1:6153 && claude --dangerously-skip-permissions"
+  tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -l -- "unset CLAUDECODE && cd $WORKDIR && claude --dangerously-skip-permissions"
   tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 Enter
 fi
 
@@ -199,7 +204,7 @@ fi
 ready=false
 for _ in {1..30}; do
   if [[ "$TARGET" == "ssh" ]]; then
-    pane="$(ssh -o BatchMode=yes "$SSH_HOST" "tmux -S '$SOCKET' capture-pane -p -J -t '$SESSION':0.0 -S -60" || true)"
+    pane="$(ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; tmux -S '$SOCKET' capture-pane -p -J -t '$SESSION':0.0 -S -60" || true)"
   else
     pane="$(tmux -S "$SOCKET" capture-pane -p -J -t "$SESSION":0.0 -S -60 || true)"
   fi
@@ -217,7 +222,7 @@ fi
 # Paste prompt
 if [[ "$TARGET" == "ssh" ]]; then
   prompt_text="$(cat "$PROMPT_TMP")"
-  ssh -o BatchMode=yes "$SSH_HOST" "tmux -S '$SOCKET' send-keys -t '$SESSION':0.0 -l -- $(python3 - <<'PY'
+  ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; tmux -S '$SOCKET' send-keys -t '$SESSION':0.0 -l -- $(python3 - <<'PY'
 import shlex,sys
 s=sys.stdin.read()
 print(shlex.quote(s))
@@ -232,9 +237,9 @@ fi
 submitted=false
 for _ in {1..4}; do
   if [[ "$TARGET" == "ssh" ]]; then
-    ssh -o BatchMode=yes "$SSH_HOST" "tmux -S '$SOCKET' send-keys -t '$SESSION':0.0 Enter"
+    ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; tmux -S '$SOCKET' send-keys -t '$SESSION':0.0 Enter"
     sleep 1
-    pane_after="$(ssh -o BatchMode=yes "$SSH_HOST" "tmux -S '$SOCKET' capture-pane -p -J -t '$SESSION':0.0 -S -120" || true)"
+    pane_after="$(ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; tmux -S '$SOCKET' capture-pane -p -J -t '$SESSION':0.0 -S -120" || true)"
   else
     tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 Enter
     sleep 1
@@ -266,3 +271,39 @@ else
   echo "SESSION=$SESSION"
   echo "ATTACH: tmux -S \"$SOCKET\" attach -t \"$SESSION\""
 fi
+
+# ========== 启动执行日志捕获（后台） ==========
+CAPTURE_SCRIPT="$SCRIPT_DIR/capture-execution.sh"
+CAPTURE_PID_FILE="/tmp/${SESSION}-capture.pid"
+
+# 停止旧的捕获进程（如果有）
+if [[ -f "$CAPTURE_PID_FILE" ]]; then
+  old_pid=$(cat "$CAPTURE_PID_FILE" 2>/dev/null || echo "")
+  if [[ -n "$old_pid" ]] && kill -0 "$old_pid" 2>/dev/null; then
+    kill "$old_pid" 2>/dev/null || true
+  fi
+  rm -f "$CAPTURE_PID_FILE"
+fi
+
+# 启动新的捕获进程
+if [[ -x "$CAPTURE_SCRIPT" ]]; then
+  if [[ "$TARGET" == "ssh" ]]; then
+    nohup bash "$CAPTURE_SCRIPT" \
+      --session "$SESSION" \
+      --socket "$SOCKET" \
+      --target ssh \
+      --ssh-host "$SSH_HOST" \
+      --interval 15 \
+      > "/tmp/${SESSION}-capture.log" 2>&1 &
+  else
+    nohup bash "$CAPTURE_SCRIPT" \
+      --session "$SESSION" \
+      --socket "$SOCKET" \
+      --interval 15 \
+      > "/tmp/${SESSION}-capture.log" 2>&1 &
+  fi
+  echo $! > "$CAPTURE_PID_FILE"
+  echo "CAPTURE_PID=$(cat "$CAPTURE_PID_FILE")"
+  echo "CAPTURE_LOG=/tmp/${SESSION}-capture.log"
+fi
+# ========== 执行日志捕获启动完成 ==========
