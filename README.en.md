@@ -42,6 +42,20 @@ bash skills/claude-code-orchestrator/scripts/bootstrap.sh --dry-run
   - `FINAL.md`: final merged write-up (main)
   - `archive/`: historical drafts (not mainline)
 - `skills/claude-code-orchestrator/`: tmux-first orchestration scripts (local/ssh supported)
+  - `scripts/start-tmux-task.sh`: launch tasks (`--mode interactive|headless`)
+  - `scripts/wake.sh`: notification + TASK_HISTORY recording (Feishu DM + gateway wake)
+  - `scripts/on-session-exit.sh`: event-driven abnormal exit handler (tmux pane-died hook)
+  - `scripts/timeout-guard.sh`: background timeout watchdog (default 2h)
+  - `scripts/diagnose-failure.sh`: failure diagnosis (4 data sources, 8 failure patterns)
+  - `scripts/watchdog.sh`: periodic patrol (cron every 10 min)
+  - `scripts/capture-execution.sh`: interactive mode background sampling
+  - `scripts/analyze-history.sh`: history analysis + weekly report
+  - `scripts/list-tasks.sh`: list all cc-* sessions
+  - `scripts/status-tmux-task.sh`: zero-token status detection
+  - `scripts/monitor-tmux-task.sh`: live session viewer
+  - `scripts/complete-tmux-task.sh`: fallback completion script
+  - `scripts/bootstrap.sh`: environment setup
+  - `TASK_HISTORY.jsonl`: task history log
 - `AGENT_RUNBOOK.md`: executable steps for agents
 - `MANIFEST.sha256`: file integrity checks
 
@@ -99,19 +113,26 @@ But “parallel management” needs structure — that’s where tmux comes in.
 
 ---
 
-## Current Status & Next Steps (real-world)
+## Current Status & Next Steps (updated 2026-02-17)
 
-### What’s already solid
-- Task startup is stable (OpenClaw → tmux → Claude Code).
-- Engineering-style deliverables are improving (completion reports as evidence).
-- Better observability with:
+Full closed-loop feedback system verified (Phase 0-3 complete). Core pipeline is stable.
+
+### What's solid and verified
+
+- **Dual-mode execution**: `--mode interactive` (default, takeover-friendly) and `--mode headless` (`claude -p` + stream-json, native structured logs).
+- **100% notification reliability**: Feishu DM direct push (`openclaw message send`) + gateway wake dual-channel. wake.sh extracts Claude Code's own completion summary for rich notifications.
+- **Event-driven monitoring**:
+  - `on-session-exit.sh`: tmux pane-died hook auto-triggers on abnormal exit — runs diagnosis, sends alert, records history. Pure shell, zero LLM tokens.
+  - `timeout-guard.sh`: background timeout watchdog (default 2h), auto-diagnoses and notifies on timeout.
+  - `watchdog.sh`: cron patrol every 10 minutes as fallback.
+- **Automatic failure diagnosis**: `diagnose-failure.sh` supports 4 data sources, 8 failure patterns.
+- **History + weekly report**: wake.sh auto-records to TASK_HISTORY.jsonl; weekly report sent Monday 9:30.
+- **Parallel task execution verified**: 3 headless tasks launched simultaneously, completed independently in ~40s total.
+- **Task observability**:
   - `bash skills/claude-code-orchestrator/scripts/list-tasks.sh`
   - `bash skills/claude-code-orchestrator/scripts/list-tasks.sh --json | jq .`
 
-### Still being refined
-- “Auto push back when finished” can still be flaky (wake delivery, visibility).
-  - Mitigation: proactively probe with `status-tmux-task.sh` / `list-tasks.sh`.
-
 ### Next to build
-- A callback reliability loop (wake confirmation, failure markers, re-send when report exists but wake didn’t land).
-- Multi-device execution as an advanced capability (mini always-on vs macbook with VPN/codebase).
+- **Auto-retry**: decide retry based on diagnose-failure.sh results.
+- **Multi-device scheduling**: MacBook ↔ mini bidirectional SSH for execution node selection.
+- **Sub-agent capability**: leverage OpenClaw sub-agents for complex task orchestration.

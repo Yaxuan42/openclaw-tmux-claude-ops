@@ -42,6 +42,20 @@ bash skills/claude-code-orchestrator/scripts/bootstrap.sh --dry-run
   - `FINAL.md`：融合版最终稿（主线）
   - `archive/`：历史归档（不作为主线内容）
 - `skills/claude-code-orchestrator/`：tmux 编排脚本（local/ssh 都支持）
+  - `scripts/start-tmux-task.sh`：启动任务（支持 `--mode interactive|headless`）
+  - `scripts/wake.sh`：通知 + 记录 TASK_HISTORY（飞书 DM 直推 + gateway wake 双通道）
+  - `scripts/on-session-exit.sh`：tmux pane-died 事件驱动的异常退出处理
+  - `scripts/timeout-guard.sh`：后台超时看门狗（默认 2h）
+  - `scripts/diagnose-failure.sh`：失败诊断（4 种数据源，8 种失败模式）
+  - `scripts/watchdog.sh`：定期巡检（cron 每 10 分钟）
+  - `scripts/capture-execution.sh`：interactive 模式后台采样
+  - `scripts/analyze-history.sh`：历史分析 + 周报
+  - `scripts/list-tasks.sh`：列出所有 cc-* 会话
+  - `scripts/status-tmux-task.sh`：零 token 状态检测
+  - `scripts/monitor-tmux-task.sh`：实时查看会话
+  - `scripts/complete-tmux-task.sh`：兜底完成脚本
+  - `scripts/bootstrap.sh`：环境初始化
+  - `TASK_HISTORY.jsonl`：任务历史记录
 - `AGENT_RUNBOOK.md`：给 agent 看的（可执行 Runbook）
 - `MANIFEST.sha256`：校验
 
@@ -117,26 +131,29 @@ tmux 的价值非常朴素：
 
 ---
 
-## 现状与下一步（真实状态）
+## 现状与下一步（真实状态，2026-02-17 更新）
 
-这套流程我自己正在用，现阶段的体感是：
+这套流程已经过完整闭环验证（Phase 0-3 全部完成），核心链路已经稳定。
 
-### ✅ 已经稳定 & 明显改善的
-- **触发执行比较稳定**：OpenClaw 能把任务启动进 tmux，Claude Code 能在 session 里持续跑。
-- **交付物更工程化**：completion report 作为“证据链”逐步成型（diff/质量门/风险）。
-- **并行任务可观测性更强**：新增了脚本级能力，能快速看全局状态：
+### ✅ 已稳定 & 验证通过
+
+- **双模式执行**：`--mode interactive`（默认，可接管）和 `--mode headless`（`claude -p` + stream-json，原生结构化日志）按需选择。
+- **通知可靠性 100%**：飞书 DM 直推（`openclaw message send`）+ gateway wake 双通道。wake.sh 会提取 Claude Code 自己的完成摘要作为通知内容。
+- **事件驱动监控**：
+  - `on-session-exit.sh`：tmux pane-died hook 自动触发，检测异常退出、运行诊断、发送告警、记录历史。纯 shell，零 LLM token 消耗。
+  - `timeout-guard.sh`：后台超时看门狗（默认 2h），超时自动诊断并通知。
+  - `watchdog.sh`：cron 每 10 分钟巡检兜底。
+- **失败自动诊断**：`diagnose-failure.sh` 支持 4 种数据源、8 种失败模式自动分析。
+- **历史积累 + 周报**：wake.sh 自动记录 TASK_HISTORY.jsonl，周一 9:30 自动发送周报。
+- **并行任务验证通过**：3 个 headless 任务同时启动，各自独立完成，总耗时 ~40 秒。
+- **并行任务可观测性**：
   - `bash skills/claude-code-orchestrator/scripts/list-tasks.sh`
   - `bash skills/claude-code-orchestrator/scripts/list-tasks.sh --json | jq .`
 
-### ⚠️ 仍在打磨的
-- **“干完自动推送回来”仍可能不稳**：wake 可能丢、或者任务完成但你没有第一时间看到。
-  - 现在的缓解方式是：用 `status-tmux-task.sh` / `list-tasks.sh` 主动探测状态，再决定是否需要人工介入。
-
-### 🧭 下一步（我正在推进/建议推进）
-- **回调可靠性闭环**（wake 确认、失败标记、报告存在但未 wake 的补发）。
-- **多设备作为进阶能力**：MacBook ↔ mini 双向 SSH 打通后，让 OpenClaw 发布任务时可以选择执行节点：
-  - 跑在 **mini**（全天运行、适合常驻调度）
-  - 跑在 **MacBook**（有公司 VPN 和代码库；我不操作时会关掉）
+### 🧭 下一步
+- **自动重试**：根据 diagnose-failure.sh 的诊断结果自动决定是否重试。
+- **多设备调度**：MacBook ↔ mini 双向 SSH 打通后，让 OpenClaw 选择执行节点。
+- **sub-agent 能力**：利用 OpenClaw sub-agent 做更复杂的任务编排。
 
 ---
 

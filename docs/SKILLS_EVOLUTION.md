@@ -1,8 +1,10 @@
 # Skills 层面迭代评估报告
 
-> 评估日期：2026-02-14
+> 评估日期：2026-02-14（初版）→ 2026-02-17（完成状态更新）
 > 评估范围：`skills/claude-code-orchestrator/`（脚本 + SKILL.md + 交付协议）
 > 评估视角：skills 层面（不涉及 OpenClaw 核心 / 模型选择 / 产品定位）
+>
+> **状态：P0 全部完成，P1 大部分完成，新增 Phase 0-3 闭环反馈系统**
 
 ---
 
@@ -19,15 +21,22 @@
 | 非阻塞进度查看（capture-pane） | monitor-tmux-task.sh | 稳定 |
 | 交互式接管（tmux attach） | tmux | 稳定 |
 | JSON + MD 完成报告生成 | Claude Code 自行产出 / complete-tmux-task.sh 兜底 | 较稳定 |
-| wake 回调触发 | wake.sh → openclaw gateway | 可用，不够稳 |
+| wake 回调触发 | wake.sh → feishu DM + gateway wake | ✅ **稳定**（已修复） |
+| **Headless 模式**（新增） | `claude -p --output-format stream-json` | ✅ 稳定 |
+| **事件驱动监控**（新增） | on-session-exit.sh + timeout-guard.sh | ✅ 稳定 |
+| **失败自动诊断**（新增） | diagnose-failure.sh | ✅ 稳定 |
+| **任务历史 + 周报**（新增） | wake.sh → TASK_HISTORY.jsonl + analyze-history.sh | ✅ 稳定 |
+| **并行 headless 调度**（新增） | start-tmux-task.sh --mode headless | ✅ 已验证 |
 
 ### 做不到 / 边界外
 
-1. **完成检测**：没有自动化的"任务完成了吗"探测——依赖 Claude Code 主动 wake，或人工问。
-2. **质量门泛化**：hardcode `npm run lint / build`，对非 npm 仓库（如本仓库纯脚本 + 文档）直接失败。
-3. **多任务全局视图**：每个 session 独立，没有"当前有哪些 job、分别什么状态"的汇总能力。
-4. **错误恢复**：session 挂了（Claude 退出 / SSH 断开）没有自动重连或告警。
-5. **Bootstrap**：新用户 clone 后不知道怎么跑起来（没有 `setup.sh` / 依赖检查 / 示例任务）。
+1. ~~**完成检测**~~ → ✅ **已解决**：事件驱动监控（pane-died hook + timeout-guard）+ status-tmux-task.sh 零 token 探测。
+2. ~~**质量门泛化**~~ → ✅ **已解决**：`--lint-cmd` / `--build-cmd` 参数化，空字符串跳过。
+3. ~~**多任务全局视图**~~ → ✅ **已解决**：`list-tasks.sh` 一键列出所有 cc-* 会话状态。
+4. ~~**错误恢复**~~ → ✅ **已解决**：on-session-exit.sh 自动检测异常退出 + 诊断 + 告警；watchdog.sh 兜底巡检。
+5. ~~**Bootstrap**~~ → ✅ **已解决**：`bootstrap.sh` 一键检查环境 + `--dry-run` 验证 tmux 链路。
+6. **自动重试**：诊断后仍需人工决定是否重试。（Phase 3+ 目标）
+7. **sub-agent 编排**：未使用 OpenClaw sub-agent 做复杂任务拆分。
 
 ---
 
@@ -60,90 +69,46 @@
 
 ## 三、下一阶段迭代建议清单
 
-### P0：必须做（不解决会持续阻塞日常使用）
+### P0：必须做 ✅ 全部完成
 
-#### P0-1：质量门参数化（脱离 npm 硬编码）
+#### P0-1：质量门参数化 ✅ 已完成
 
-- **目的**：让任何类型仓库（npm / cargo / make / 纯脚本）都能通过质量门。
-- **改法**：
-  - `start-tmux-task.sh` 新增 `--lint-cmd` 和 `--build-cmd` 参数，默认 `npm run lint` / `npm run build`。
-  - 当传入空字符串 `--lint-cmd ""` 时跳过该门。
-  - `complete-tmux-task.sh` 同步支持 `--lint-cmd` / `--build-cmd`。
-  - prompt 模板中的质量门部分改为动态生成。
-- **收益**：所有仓库类型立即可用；消除本仓库自身的 lint/build 报错。
-- **风险**：低。纯参数化，向后兼容（不传参则保持当前行为）。
+`start-tmux-task.sh` 和 `complete-tmux-task.sh` 支持 `--lint-cmd` / `--build-cmd`，空字符串跳过。
 
-#### P0-2：轻量完成检测（零额外 token）
+#### P0-2：轻量完成检测 ✅ 已完成（并升级为事件驱动）
 
-- **目的**：解决"wake 没到、人工也不知道任务完没完"的核心痛点。
-- **改法**：
-  - 新建 `scripts/status-tmux-task.sh`：
-    1. 用 `tmux capture-pane` 抓最后 50 行。
-    2. 用 `rg` 检测完成信号：`"REPORT_JSON="`, `"WAKE_SENT="`, `"Co-Authored-By"`, `"✗"` 等模式。
-    3. 检查 `/tmp/cc-<label>-completion-report.json` 是否已存在。
-    4. 输出状态：`running` / `likely_done` / `stuck` / `dead`（session 不存在）。
-  - OpenClaw 的 SKILL.md 在 completion loop 之前新增一步："如果超过 N 分钟没收到 wake，调用 `status-tmux-task.sh` 自检"。
-- **收益**：零 token 成本检测任务状态；OpenClaw 可主动探测而非被动等 wake。
-- **风险**：低。纯读操作，不影响执行中的 Claude Code。
+- `status-tmux-task.sh`：零 token 状态探测。
+- `on-session-exit.sh`：tmux pane-died hook，session 退出瞬间触发（比轮询更快）。
+- `timeout-guard.sh`：后台超时看门狗（默认 2h）。
+- `watchdog.sh`：cron 每 10 分钟兜底巡检。
 
-#### P0-3：Bootstrap 脚本（clone 后可自举）
+#### P0-3：Bootstrap 脚本 ✅ 已完成
 
-- **目的**：让新用户（或 agent）clone 后能一键验证环境 + 跑通 hello world。
-- **改法**：
-  - 新建 `scripts/bootstrap.sh`：
-    1. 检查依赖：`tmux`, `claude`, `rg`, `python3`, `git`。
-    2. 缺什么就报什么（不自动安装，只检测 + 提示）。
-    3. 验证 tmux socket 目录可写。
-    4. 可选 `--dry-run`：模拟启动一个 hello-world 任务（不实际调用 Claude），验证 tmux session 创建/销毁正常。
-  - README.md 新增"Quick Start"块，指向 `bootstrap.sh`。
-- **收益**：降低上手门槛；agent 也能用 bootstrap 做预检。
-- **风险**：低。不修改现有脚本。
+`bootstrap.sh` 支持 `--dry-run`，README 已更新 Quick Start。
 
 ---
 
-### P1：应该做（提升日常效率和可靠性）
+### P1：应该做 ✅ 大部分完成
 
-#### P1-1：任务全局状态视图
+#### P1-1：任务全局状态视图 ✅ 已完成
 
-- **目的**：一条命令看到所有活跃/完成/异常的任务。
-- **改法**：
-  - 新建 `scripts/list-tasks.sh`：
-    1. `tmux -S <socket> list-sessions` 拿到所有 `cc-*` session。
-    2. 对每个 session 调用 `status-tmux-task.sh` 拿状态。
-    3. 检查 `/tmp/cc-<label>-completion-report.json` 是否存在。
-    4. 输出表格：label / status / session_alive / report_exists / last_activity。
-- **收益**：OpenClaw 可以一次性汇报所有任务状态；用户不需要逐个问。
-- **风险**：低。依赖 P0-2。
+`list-tasks.sh` 支持 `--json` 输出，配合 OpenClaw 生成管家式汇总。
 
-#### P1-2：complete-tmux-task.sh JSON 生成加固
+#### P1-2：JSON 生成加固 ✅ 已完成
 
-- **目的**：消除 shell 变量注入破坏 Python heredoc 的风险。
-- **改法**：
-  - 把 `git diff --stat` / `lint_out` / `build_out` 写入临时文件。
-  - Python 脚本从文件读取，而非 shell 变量内嵌 `'''..'''`。
-  - 或改用 `jq` 构建 JSON（`jq -n --arg ...`），消除 Python 依赖。
-- **收益**：在包含引号、反斜杠、多行输出的仓库中不会崩溃。
-- **风险**：低。
+`complete-tmux-task.sh` 已改用 `jq` 构建 JSON，消除 Python heredoc 注入风险。
 
 #### P1-3：Proxy 配置外置
 
-- **目的**：不同机器不需要改脚本源码来改 proxy。
-- **改法**：
-  - `start-tmux-task.sh` 新增 `--proxy` 参数，默认从环境变量 `$OPENCLAW_PROXY` 读取。
-  - 如果都没传，则不设置 proxy（当前行为是强制设置）。
-- **收益**：减少"换台机器就要改脚本"的摩擦。
-- **风险**：低。
+未实施。当前硬编码 proxy 不影响主流程。低优先级。
 
-#### P1-4：wake 确认机制
+#### P1-4：wake 确认机制 ✅ 已解决（方案升级）
 
-- **目的**：确认 wake 回调是否真的被 OpenClaw 收到。
-- **改法**：
-  - `wake.sh` 检查 `openclaw gateway call wake` 的退出码。
-  - 如果失败，写一个 `/tmp/cc-<label>-wake-failed` 标记文件。
-  - `status-tmux-task.sh` 检测到报告存在但 wake 失败时，输出 `done_wake_failed`。
-  - OpenClaw 定期调 `list-tasks.sh` 时能发现这种状态。
-- **收益**：闭合"wake 发了但没到"的盲区。
-- **风险**：低。
+原方案：检测 wake 退出码 + 标记文件。
+实际方案（更优）：
+- wake.sh 改用 `openclaw message send` 飞书 DM 直推（绕过 gateway call agent 的三层 bug）
+- 事件驱动监控（on-session-exit.sh + timeout-guard.sh）作为兜底
+- watchdog.sh cron 每 10 分钟巡检
 
 ---
 
@@ -151,43 +116,22 @@
 
 #### P2-1：多机执行接口设计
 
-- **目的**：为 MacBook ↔ mini 双向调度预留干净接口。
-- **改法**：
-  - 不改现有脚本。新建 `scripts/remote-dispatch.sh`：
-    1. 参数：`--target-host <alias>` + 现有所有 start-tmux-task.sh 参数。
-    2. 内部调用 `start-tmux-task.sh --target ssh --ssh-host <alias>`。
-    3. 同时注册一条"回收任务"：把 `status-tmux-task.sh` + 报告回传逻辑封装好。
-  - SKILL.md 新增"远程执行"分支，指向 `remote-dispatch.sh`。
-- **收益**：远程执行从"高级用户手写参数"变成"一条命令"。
-- **风险**：中。SSH 环境差异难以穷举测试。
+未实施。当前 SSH 模式已可用，但 `remote-dispatch.sh` 封装尚未创建。
 
-#### P2-2：执行超时 + 自动告警
+#### P2-2：执行超时 + 自动告警 ✅ 已完成（方案升级）
 
-- **目的**：任务跑了 30 分钟还没完成，主动告警。
-- **改法**：
-  - `start-tmux-task.sh` 新增 `--timeout <minutes>` 参数。
-  - 启动时写一个 at/cron 任务，到时间后调用 `status-tmux-task.sh`；如果状态是 `running`，调用 `wake.sh "timeout-warning (${LABEL})" now`。
-- **收益**：防止静默挂死。
-- **风险**：中。at/cron 可靠性依赖环境；需要清理机制。
+原方案：`--timeout` 参数 + at/cron。
+实际方案（更优）：`timeout-guard.sh` 后台进程，start-tmux-task.sh 自动启动，默认 2h。超时后自动运行诊断、发送飞书告警、记录历史。PID 跟踪 + 自动清理。
 
-#### P2-3：Session 日志持久化
+#### P2-3：Session 日志持久化 ✅ 部分完成
 
-- **目的**：tmux scrollback 重启后消失；需要持久日志。
-- **改法**：
-  - `start-tmux-task.sh` 启动时启用 `tmux pipe-pane -t $SESSION "cat >> /tmp/cc-${LABEL}.log"`。
-  - 或在 prompt 中要求 Claude Code 把关键输出 tee 到日志文件。
-- **收益**：事后复盘不依赖 tmux session 存活。
-- **风险**：低。日志文件可能较大，需定期清理。
+- Headless 模式：stream.jsonl 即为完整持久日志（每行一个 JSON 事件）。
+- Interactive 模式：capture-execution.sh 后台采样到 execution-events.jsonl。
+- 未实现 tmux pipe-pane 全量日志（低优先级，有 stream.jsonl 和 capture 已够用）。
 
 #### P2-4：SKILL.md 协议版本化
 
-- **目的**：随着协议迭代，避免新旧 prompt 模板不兼容。
-- **改法**：
-  - SKILL.md 头部新增 `protocol_version: 2`。
-  - `start-tmux-task.sh` 根据版本号选择 prompt 模板。
-  - 旧版本 prompt 仍可用，但标记为 deprecated。
-- **收益**：平滑升级；多个 OpenClaw 实例可以共存不同协议版本。
-- **风险**：低。
+未实施。当前只有一套协议，暂不需要版本化。
 
 ---
 
@@ -259,10 +203,21 @@ OpenClaw 侧的使用方式：
 
 ## 六、总结
 
-当前 skills 层的核心架构（三层分工 + tmux 编排 + 交付协议）是正确的。最大的三个改进机会是：
+skills 层已从"基本可用"进化为"完整闭环"（2026-02-17 更新）。
 
-1. **质量门泛化**（P0-1）：从"只能用于 npm 项目"到"任何项目"。
-2. **零成本完成检测**（P0-2）：从"被动等 wake"到"主动探测状态"。
-3. **Bootstrap 自举**（P0-3）：从"要有人教"到"clone 即跑"。
+### 已完成
 
-这三项都是 skills 层改动，不涉及 OpenClaw 核心，风险低、收益确定、实施快。
+1. ✅ **质量门泛化**（P0-1）：`--lint-cmd` / `--build-cmd` 参数化，任何项目类型可用。
+2. ✅ **事件驱动监控**（P0-2 升级）：pane-died hook + timeout-guard + watchdog cron 三层防护。
+3. ✅ **Bootstrap 自举**（P0-3）：clone 即跑。
+4. ✅ **Headless 模式**：`claude -p --output-format stream-json --verbose`，支持并行调度。
+5. ✅ **通知修复**：飞书 DM 直推 + 富文本摘要（提取 Claude 自己的完成总结）。
+6. ✅ **失败自动诊断**：diagnose-failure.sh 支持 4 种数据源、8 种失败模式。
+7. ✅ **历史积累 + 周报**：wake.sh 自动记录，周一 9:30 自动发送周报。
+8. ✅ **JSON 生成加固**：改用 jq，消除 Python heredoc 注入风险。
+
+### 下一步
+
+1. **自动重试**：基于诊断结果自动决定是否重试（当前需人工决定）。
+2. **sub-agent 编排**：利用 OpenClaw sub-agent 做复杂任务拆分。
+3. **多机调度封装**：`remote-dispatch.sh` 一条命令选择执行节点。

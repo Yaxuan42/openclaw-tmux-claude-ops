@@ -64,12 +64,12 @@ tmux 的 stdout 就是最朴素的 observability：不需要额外协议。
 ## 4. 强制交付协议：把“done”变成可审计交付物
 建议每个任务结束前强制完成三阶段：
 
-1) **质量门**（至少）：
+1) **质量门**（已参数化，支持任何项目类型）：
 - `git status --short`
 - `git diff --name-only`
 - `git diff --stat`
-- `npm run lint`（或等价质量检查）
-- `npm run build`（或等价构建检查）
+- `--lint-cmd "npm run lint"`（可自定义，传空字符串跳过）
+- `--build-cmd "npm run build"`（可自定义，传空字符串跳过）
 
 2) **产出报告**（JSON + Markdown）：
 - `/tmp/cc-<label>-completion-report.json`
@@ -82,7 +82,43 @@ tmux 的 stdout 就是最朴素的 observability：不需要额外协议。
 
 ---
 
-## 5. 适用与不适用
+## 5. 双模式执行 + 事件驱动闭环
+
+### 5.1 交互 vs 非交互（Headless）
+
+| 维度 | 交互模式（默认） | Headless 模式 |
+|------|----------------|--------------|
+| 启动方式 | `--mode interactive` | `--mode headless` |
+| Claude 调用 | `claude --dangerously-skip-permissions` | `claude -p --output-format stream-json --verbose` |
+| 可接管 | 随时 attach 接管键盘 | 不可接管，但可查看 stream log |
+| 日志格式 | capture-execution.sh 采样 | 原生 stream-json（每个 tool call 一行 JSON） |
+| 适用场景 | 复杂、需人工介入 | 明确、可一次完成 |
+| 并行 | 可以，但通常不超过 2-3 个 | 可大量并行 |
+
+选择建议：
+- 简单、确定性高的任务 → headless（结构化日志，适合自动分析）
+- 复杂、可能需要人工介入 → interactive（保留 attach 能力）
+
+### 5.2 事件驱动监控（自动，零 token）
+
+每个任务启动时自动配置三层防护：
+1. **pane-died hook**（`on-session-exit.sh`）：session 退出瞬间触发，检测是否异常、运行诊断、发送告警。
+2. **超时看门狗**（`timeout-guard.sh`）：后台 sleep 2h，醒来检查任务是否还在运行。
+3. **定期巡检**（`watchdog.sh`，cron 每 10 分钟）：兜底扫描所有 cc-* 会话。
+
+所有监控都是纯 shell，不消耗 LLM token。
+
+### 5.3 通知闭环
+
+wake.sh 现在会从 stream.jsonl 中提取 Claude Code 自己的完成摘要，发送富文本飞书 DM 通知：
+```
+[Done] task-label
+Claude 自己写的完成总结...
+```
+
+异常退出和超时也会自动发送告警通知，包含诊断结果和建议。
+
+## 6. 适用与不适用
 
 适合：
 - 并行 3 件以上的工程任务（UI polish、文档整理、低风险重构、脚本编写）
@@ -96,7 +132,7 @@ tmux 的 stdout 就是最朴素的 observability：不需要额外协议。
 
 ---
 
-## 6. 安全与边界（必须说清）
+## 7. 安全与边界（必须说清）
 这套方案的默认形态是**单机编排**：OpenClaw、tmux、Claude Code 在一台机器上即可跑出质变。
 
 如果你引入**远程/多设备执行**（进阶），本质会升级为“远程代码执行能力”，最低要求：
@@ -108,7 +144,7 @@ tmux 的 stdout 就是最朴素的 observability：不需要额外协议。
 
 ---
 
-## 7. 可直接照抄的 3 条实践建议
+## 8. 可直接照抄的实践建议
 1) **任务=一个 tmux session + 一个 label**：从命名开始建立“作业感”。
 2) **把交付协议写进 prompt**：diff/lint/build + 报告路径，别靠口头。
 3) **先读报告再读 diff**：低风险快速合，高风险再 attach 追溯过程。
