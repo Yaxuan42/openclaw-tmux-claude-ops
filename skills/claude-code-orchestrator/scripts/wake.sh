@@ -44,14 +44,29 @@ if [[ -n "$REPORT_PATH" && -f "$REPORT_PATH" ]]; then
     _failure_reason="high_risk"
   fi
 
-  # Read execution summary if available
+  # Read execution metrics
   _runs_dir="$(dirname "$REPORT_PATH")"
   _exec_summary="$_runs_dir/execution-summary.json"
+  _stream_log="$_runs_dir/stream.jsonl"
   _duration=0
   _exec_errors=0
+  _cost="0"
+
+  # Source 1: execution-summary.json (interactive mode)
   if [[ -f "$_exec_summary" ]]; then
     _duration=$(jq -r '.durationSeconds // 0' "$_exec_summary" 2>/dev/null || echo "0")
     _exec_errors=$(jq -r '.eventCounts.errors // 0' "$_exec_summary" 2>/dev/null || echo "0")
+  fi
+
+  # Source 2: stream.jsonl result line (headless mode fallback)
+  if [[ -f "$_stream_log" ]]; then
+    _result_line=$(grep '"subtype":"result"' "$_stream_log" 2>/dev/null | tail -1 || true)
+    if [[ -n "$_result_line" ]]; then
+      if [[ "$_duration" -eq 0 ]]; then
+        _duration=$(echo "$_result_line" | jq -r '.duration_ms // 0' 2>/dev/null | awk '{printf "%.0f", $1/1000}' || echo "0")
+      fi
+      _cost=$(echo "$_result_line" | jq -r '.total_cost_usd // 0' 2>/dev/null || echo "0")
+    fi
   fi
 
   # Append to history
@@ -66,6 +81,7 @@ if [[ -n "$REPORT_PATH" && -f "$REPORT_PATH" ]]; then
     --argjson durationSeconds "$_duration" \
     --argjson executionErrors "$_exec_errors" \
     --argjson filesChanged "$_files_changed" \
+    --argjson costUSD "$_cost" \
     '{
       timestamp: $timestamp,
       label: $label,
@@ -76,7 +92,8 @@ if [[ -n "$REPORT_PATH" && -f "$REPORT_PATH" ]]; then
       recommendation: $recommendation,
       durationSeconds: $durationSeconds,
       executionErrors: $executionErrors,
-      filesChanged: $filesChanged
+      filesChanged: $filesChanged,
+      costUSD: $costUSD
     }' >> "$HISTORY_FILE" 2>/dev/null || true
 fi
 

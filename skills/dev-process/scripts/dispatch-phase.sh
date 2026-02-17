@@ -141,8 +141,8 @@ $(if [[ "$is_web" == true ]]; then echo "Web 项目请同时参考 $WEB_GUIDE"; 
 ## 当前状态
 $(cat "$STATUS")
 
-## PRD 摘要
-$(cat "$PROJECT_DIR/docs/PRD.md" 2>/dev/null | head -80 || echo "PRD.md not available")
+## PRD 内容
+$(cat "$PROJECT_DIR/docs/PRD.md" 2>/dev/null || echo "PRD.md not available")
 
 ## 交付物
 1. 编辑 docs/DESIGN.md — Architecture、Data Model、API Design、Error Handling、Security、Tech Stack
@@ -171,11 +171,11 @@ PROMPT
 ## 当前状态
 $(cat "$STATUS")
 
-## 设计文档摘要
-$(cat "$PROJECT_DIR/docs/DESIGN.md" 2>/dev/null | head -60 || echo "DESIGN.md not available")
+## 设计文档
+$(cat "$PROJECT_DIR/docs/DESIGN.md" 2>/dev/null || echo "DESIGN.md not available")
 
-## 测试计划摘要
-$(cat "$PROJECT_DIR/docs/TEST_PLAN.md" 2>/dev/null | head -60 || echo "TEST_PLAN.md not available")
+## 测试计划
+$(cat "$PROJECT_DIR/docs/TEST_PLAN.md" 2>/dev/null || echo "TEST_PLAN.md not available")
 
 ## TDD 工作流
 1. Red: 从 TEST_PLAN.md 选取测试用例，写失败测试

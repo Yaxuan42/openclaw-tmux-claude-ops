@@ -5,8 +5,8 @@ LABEL=""
 WORKDIR=""
 PROMPT_FILE=""
 TASK=""
-LINT_CMD="npm run lint"
-BUILD_CMD="npm run build"
+LINT_CMD=""
+BUILD_CMD=""
 MODE="interactive"       # interactive | headless
 
 TARGET="local"            # local | ssh
@@ -37,6 +37,12 @@ done
   echo "Usage: $0 --label <label> --workdir <dir> --prompt-file <file> --task <text> [--mode interactive|headless] [--target local|ssh --ssh-host <alias> --mini-host <alias>]"
   exit 1
 }
+
+# Auto-detect lint/build commands if not explicitly provided
+if [[ -z "$LINT_CMD" && -z "$BUILD_CMD" && -f "$WORKDIR/package.json" ]]; then
+  LINT_CMD="npm run lint"
+  BUILD_CMD="npm run build"
+fi
 
 if [[ "$TARGET" == "ssh" && -z "$SSH_HOST" ]]; then
   echo "ERROR: --target ssh requires --ssh-host <alias>"
