@@ -21,15 +21,18 @@ done
 [[ -n "$LABEL" ]] || { echo "Usage: $0 --label <label> [--session cc-xxx] [--socket path]"; exit 1; }
 
 SESSION="${SESSION:-cc-${LABEL}}"
-REPORT_JSON="/tmp/${SESSION}-completion-report.json"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNS_DIR="$SCRIPT_DIR/../runs/$LABEL"
+mkdir -p "$RUNS_DIR"
+
+REPORT_JSON="$RUNS_DIR/completion-report.json"
 DIAGNOSE_SCRIPT="$SCRIPT_DIR/diagnose-failure.sh"
 HISTORY_FILE="$SCRIPT_DIR/../TASK_HISTORY.jsonl"
 
 EDWARD_USER_ID="ou_e5eb026fddb0fe05895df71a56f65e2f"
 
-LOG_FILE="/tmp/${SESSION}-on-exit.log"
+LOG_FILE="$RUNS_DIR/on-exit.log"
 exec >> "$LOG_FILE" 2>&1
 echo "=== on-session-exit.sh triggered at $(date) ==="
 echo "LABEL=$LABEL SESSION=$SESSION"
@@ -38,7 +41,7 @@ echo "LABEL=$LABEL SESSION=$SESSION"
 sleep 3
 
 # Kill the timeout guard if it's still running
-TIMEOUT_PID_FILE="/tmp/cc-${LABEL}-timeout.pid"
+TIMEOUT_PID_FILE="$RUNS_DIR/timeout.pid"
 if [[ -f "$TIMEOUT_PID_FILE" ]]; then
   timeout_pid=$(cat "$TIMEOUT_PID_FILE" 2>/dev/null || echo "")
   if [[ -n "$timeout_pid" ]] && kill -0 "$timeout_pid" 2>/dev/null; then
@@ -49,7 +52,7 @@ if [[ -f "$TIMEOUT_PID_FILE" ]]; then
 fi
 
 # Kill the capture process if it's still running
-CAPTURE_PID_FILE="/tmp/${SESSION}-capture.pid"
+CAPTURE_PID_FILE="$RUNS_DIR/capture.pid"
 if [[ -f "$CAPTURE_PID_FILE" ]]; then
   cap_pid=$(cat "$CAPTURE_PID_FILE" 2>/dev/null || echo "")
   if [[ -n "$cap_pid" ]] && kill -0 "$cap_pid" 2>/dev/null; then
@@ -94,7 +97,7 @@ fi
 notify_msg="[Claude Code 异常退出] 任务 ${LABEL} 的 tmux session 已终止，但未生成完成报告。
 分类: ${failure_cat}
 建议: ${suggestion}
-日志: /tmp/${SESSION}-on-exit.log"
+日志: $RUNS_DIR/on-exit.log"
 
 echo "Sending Feishu notification..."
 openclaw message send \

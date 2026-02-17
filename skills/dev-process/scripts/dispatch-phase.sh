@@ -76,7 +76,10 @@ esac
 # Sanitize label
 LABEL="$(echo "$LABEL" | sed 's/[^a-zA-Z0-9_-]/-/g' | tr '[:upper:]' '[:lower:]')"
 
-PROMPT_FILE="/tmp/cc-${LABEL}-prompt.txt"
+# Prompt file goes into orchestrator runs/ directory
+ORCH_RUNS_DIR="$SCRIPT_DIR/../../claude-code-orchestrator/runs/$LABEL"
+mkdir -p "$ORCH_RUNS_DIR"
+PROMPT_FILE="$ORCH_RUNS_DIR/prompt.txt"
 
 # Read recent lessons (last 5)
 recent_lessons=""
@@ -144,8 +147,8 @@ $(cat "$PROJECT_DIR/docs/PRD.md" 2>/dev/null | head -80 || echo "PRD.md not avai
 ## 交付物
 1. 编辑 docs/DESIGN.md — Architecture、Data Model、API Design、Error Handling、Security、Tech Stack
 2. 编辑 docs/TEST_PLAN.md — Test Strategy、Test Cases (TC-xxx)、Coverage Targets、TDD Workflow
-$(if [[ "$is_web" == true ]]; then echo "3. 编辑 docs/API_CONTRACT.md — Base URL、Auth、Response Format、Endpoints、Error Codes、TS Interfaces"; fi)
-3. 更新 docs/STATUS.md 的 Iteration Log
+$(if [[ "$is_web" == true ]]; then echo "3. 编辑 docs/API_CONTRACT.md — Base URL、Auth、Response Format、Endpoints、Error Codes、TS Interfaces
+4. 更新 docs/STATUS.md 的 Iteration Log"; else echo "3. 更新 docs/STATUS.md 的 Iteration Log"; fi)
 
 $(if [[ -n "$recent_lessons" ]]; then
 echo "## 历史经验（参考）"

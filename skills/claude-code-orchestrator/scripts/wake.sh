@@ -13,9 +13,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HISTORY_FILE="$SCRIPT_DIR/../TASK_HISTORY.jsonl"
 
 # ── Record task history from completion report (if available) ──
-# Parse report path from TEXT: "... report=/tmp/cc-xxx-completion-report.json"
+# Parse report path from TEXT: "... report=/path/to/completion-report.json"
+# Support paths with spaces (match from "report=" to ".json")
 REPORT_PATH=""
-if [[ "$TEXT" =~ report=([^ ]+\.json) ]]; then
+if [[ "$TEXT" =~ report=(.+\.json) ]]; then
   REPORT_PATH="${BASH_REMATCH[1]}"
 fi
 
@@ -44,8 +45,8 @@ if [[ -n "$REPORT_PATH" && -f "$REPORT_PATH" ]]; then
   fi
 
   # Read execution summary if available
-  _session="cc-${_label}"
-  _exec_summary="/tmp/${_session}-execution-summary.json"
+  _runs_dir="$(dirname "$REPORT_PATH")"
+  _exec_summary="$_runs_dir/execution-summary.json"
   _duration=0
   _exec_errors=0
   if [[ -f "$_exec_summary" ]]; then
@@ -87,7 +88,7 @@ if [[ -n "$REPORT_PATH" && -f "$REPORT_PATH" ]]; then
   _summary=""
 
   # Try stream.jsonl first — contains Claude Code's own completion summary
-  _stream_log="/tmp/cc-${_label}-stream.jsonl"
+  _stream_log="$_runs_dir/stream.jsonl"
   if [[ -f "$_stream_log" ]]; then
     _summary=$(grep '"subtype":"success"' "$_stream_log" 2>/dev/null | tail -1 | jq -r '.result // ""' 2>/dev/null || echo "")
   fi

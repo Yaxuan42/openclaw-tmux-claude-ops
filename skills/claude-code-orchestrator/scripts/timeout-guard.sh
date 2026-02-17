@@ -24,10 +24,13 @@ done
 [[ -n "$LABEL" ]] || { echo "Usage: $0 --label <label> [--session cc-xxx] [--socket path] [--timeout seconds]"; exit 1; }
 
 SESSION="${SESSION:-cc-${LABEL}}"
-REPORT_JSON="/tmp/${SESSION}-completion-report.json"
-PID_FILE="/tmp/cc-${LABEL}-timeout.pid"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNS_DIR="$SCRIPT_DIR/../runs/$LABEL"
+mkdir -p "$RUNS_DIR"
+
+REPORT_JSON="$RUNS_DIR/completion-report.json"
+PID_FILE="$RUNS_DIR/timeout.pid"
 DIAGNOSE_SCRIPT="$SCRIPT_DIR/diagnose-failure.sh"
 HISTORY_FILE="$SCRIPT_DIR/../TASK_HISTORY.jsonl"
 

@@ -28,14 +28,17 @@ if [[ -z "$LABEL" || -z "$WORKDIR" ]]; then
 fi
 
 SESSION="${SESSION:-cc-${LABEL}}"
-REPORT_JSON="/tmp/${SESSION}-completion-report.json"
-REPORT_MD="/tmp/${SESSION}-completion-report.md"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNS_DIR="$SCRIPT_DIR/../runs/$LABEL"
+mkdir -p "$RUNS_DIR"
+
+REPORT_JSON="$RUNS_DIR/completion-report.json"
+REPORT_MD="$RUNS_DIR/completion-report.md"
 WAKE_SCRIPT="$SCRIPT_DIR/wake.sh"
 HISTORY_FILE="$SCRIPT_DIR/../TASK_HISTORY.jsonl"
-EXECUTION_LOG="/tmp/${SESSION}-execution-events.jsonl"
-EXECUTION_SUMMARY="/tmp/${SESSION}-execution-summary.json"
+EXECUTION_LOG="$RUNS_DIR/execution-events.jsonl"
+EXECUTION_SUMMARY="$RUNS_DIR/execution-summary.json"
 
 cd "$WORKDIR"
 

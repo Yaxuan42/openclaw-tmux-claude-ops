@@ -87,7 +87,7 @@ for sess in "${sessions[@]}"; do
   fi
 
   # --- report JSON path ---
-  report_json_path="/tmp/${sess}-completion-report.json"
+  report_json_path="$SCRIPT_DIR/../runs/${label}/completion-report.json"
 
   # --- capture last N lines (best-effort) ---
   last_lines=""

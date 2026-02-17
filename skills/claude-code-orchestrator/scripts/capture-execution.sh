@@ -5,6 +5,7 @@
 
 set -euo pipefail
 
+LABEL=""
 SESSION=""
 SOCKET=""
 INTERVAL=10
@@ -15,6 +16,7 @@ SSH_HOST=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --label) LABEL="$2"; shift 2 ;;
     --session) SESSION="$2"; shift 2 ;;
     --socket) SOCKET="$2"; shift 2 ;;
     --interval) INTERVAL="$2"; shift 2 ;;
@@ -26,8 +28,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$SESSION" ]]; then
-  echo "Usage: $0 --session <session> [--socket <path>] [--interval <sec>] [--target local|ssh --ssh-host <alias>]"
+  echo "Usage: $0 --label <label> --session <session> [--socket <path>] [--interval <sec>] [--target local|ssh --ssh-host <alias>]"
   exit 1
+fi
+
+# Derive LABEL from SESSION if not provided (backward compat)
+if [[ -z "$LABEL" ]]; then
+  LABEL="${SESSION#cc-}"
 fi
 
 # 默认 socket 路径
@@ -39,8 +46,12 @@ if [[ -z "$SOCKET" ]]; then
   fi
 fi
 
-LOG_FILE="/tmp/${SESSION}-execution-events.jsonl"
-SUMMARY_FILE="/tmp/${SESSION}-execution-summary.json"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNS_DIR="$SCRIPT_DIR/../runs/$LABEL"
+mkdir -p "$RUNS_DIR"
+
+LOG_FILE="$RUNS_DIR/execution-events.jsonl"
+SUMMARY_FILE="$RUNS_DIR/execution-summary.json"
 
 # 清理旧日志
 rm -f "$LOG_FILE" "$SUMMARY_FILE"

@@ -4,12 +4,12 @@ set -euo pipefail
 # diagnose-failure.sh — Analyze a failed/stuck Claude Code task and output diagnosis.
 #
 # Data sources (by priority):
-#   1. /tmp/cc-<label>-stream.jsonl         (headless stream-json, most precise)
-#   2. /tmp/cc-<label>-execution-events.jsonl (interactive sampled events)
-#   3. /tmp/cc-<label>-completion-report.json (completion report)
+#   1. runs/<label>/stream.jsonl             (headless stream-json, most precise)
+#   2. runs/<label>/execution-events.jsonl   (interactive sampled events)
+#   3. runs/<label>/completion-report.json   (completion report)
 #   4. tmux pane capture                     (fallback)
 #
-# Output: /tmp/cc-<label>-diagnosis.json + stdout
+# Output: runs/<label>/diagnosis.json + stdout
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -30,10 +30,13 @@ done
 
 SESSION="${SESSION:-cc-${LABEL}}"
 
-STREAM_LOG="/tmp/cc-${LABEL}-stream.jsonl"
-EVENTS_LOG="/tmp/${SESSION}-execution-events.jsonl"
-REPORT_JSON="/tmp/${SESSION}-completion-report.json"
-DIAG_OUT="/tmp/cc-${LABEL}-diagnosis.json"
+RUNS_DIR="$SCRIPT_DIR/../runs/$LABEL"
+mkdir -p "$RUNS_DIR"
+
+STREAM_LOG="$RUNS_DIR/stream.jsonl"
+EVENTS_LOG="$RUNS_DIR/execution-events.jsonl"
+REPORT_JSON="$RUNS_DIR/completion-report.json"
+DIAG_OUT="$RUNS_DIR/diagnosis.json"
 
 # ── Determine data source ────────────────────────────────────────────
 source_name=""

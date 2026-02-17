@@ -25,7 +25,11 @@ if [[ "$TARGET" == "ssh" && -z "$SSH_HOST" ]]; then
 fi
 
 SESSION="${SESSION:-cc-${LABEL}}"
-REPORT_JSON="/tmp/${SESSION}-completion-report.json"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNS_DIR="$SCRIPT_DIR/../runs/$LABEL"
+
+REPORT_JSON="$RUNS_DIR/completion-report.json"
 
 # 1. Check if session exists
 session_alive=false

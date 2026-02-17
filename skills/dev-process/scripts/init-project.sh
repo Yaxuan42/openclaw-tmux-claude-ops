@@ -39,9 +39,11 @@ if [[ -d "$PROJECT_DIR/docs" && "$FORCE" != true ]]; then
 fi
 
 # Create project directories
+# Note: tests/ is NOT created here — let the Phase 3 agent create it
+# based on the test strategy defined in DESIGN.md. Creating it unconditionally
+# causes Phase 3 gate to fail for projects without a test runner.
 mkdir -p "$PROJECT_DIR/docs"
 mkdir -p "$PROJECT_DIR/src"
-mkdir -p "$PROJECT_DIR/tests"
 
 echo "Creating project docs for: $PROJECT_NAME ($PROJECT_TYPE)"
 
@@ -119,7 +121,6 @@ fi
 echo "  │   ├── CHANGELOG.md"
 echo "  │   └── LESSONS_LEARNED.md"
 echo "  ├── src/"
-echo "  ├── tests/"
 echo "  └── CLAUDE.md"
 echo ""
 echo "Next step: Start Phase 1 (需求分析)"

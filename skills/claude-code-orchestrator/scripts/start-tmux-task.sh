@@ -59,12 +59,14 @@ SOCKET_DEFAULT="$SOCKET_DIR/clawdbot.sock"
 SOCKET="${SOCKET_OVERRIDE:-$SOCKET_DEFAULT}"
 SESSION="cc-${LABEL}"
 
-PROMPT_TMP="/tmp/${SESSION}-prompt.txt"
-REPORT_JSON="/tmp/${SESSION}-completion-report.json"
-REPORT_MD="/tmp/${SESSION}-completion-report.md"
-STREAM_LOG="/tmp/${SESSION}-stream.jsonl"
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNS_DIR="$SCRIPT_DIR/../runs/$LABEL"
+mkdir -p "$RUNS_DIR"
+
+PROMPT_TMP="$RUNS_DIR/prompt.txt"
+REPORT_JSON="$RUNS_DIR/completion-report.json"
+REPORT_MD="$RUNS_DIR/completion-report.md"
+STREAM_LOG="$RUNS_DIR/stream.jsonl"
 WAKE_SCRIPT="$SCRIPT_DIR/wake.sh"
 COMPLETE_SCRIPT="$SCRIPT_DIR/complete-tmux-task.sh"
 
@@ -165,15 +167,30 @@ fi
 # ══════════════════════════════════════════════════════════════════════
 if [[ "$MODE" == "headless" ]]; then
 
-  # Headless prompt: same delivery protocol but no wake instruction
+  # Headless prompt: embed prompt-file content inline as primary instructions,
+  # with delivery protocol as secondary "after completion" section.
   # (wake is triggered automatically after claude -p exits)
-  cat > "$PROMPT_TMP" <<EOF
-请在当前项目执行以下任务：
-参考文档：$REF_PATH
-任务要求：$TASK
+  PROMPT_FILE_CONTENT=""
+  if [[ -f "$PROMPT_FILE" ]]; then
+    PROMPT_FILE_CONTENT="$(cat "$PROMPT_FILE")"
+  fi
 
-【强制交付协议（必须逐条执行）】
-A. 完成开发后，立刻执行并收集结果：
+  cat > "$PROMPT_TMP" <<EOF
+# 任务指令
+
+$TASK
+
+## 详细需求
+
+$PROMPT_FILE_CONTENT
+
+---
+
+# 完成后：交付协议（必须逐条执行）
+
+完成以上任务的所有交付物后，执行以下交付协议：
+
+A. 执行并收集结果：
 $QUALITY_GATES
 
 B. 将交付报告写入以下两个文件：
@@ -194,7 +211,7 @@ JSON 结构必须包含：
   "notes": "..."
 }
 
-注意：完成报告写入后即可结束，不需要执行其他命令。
+注意：先完成「详细需求」中的所有交付物，再执行交付协议。
 EOF
 
   # Run claude -p in a tmux session (so list-tasks.sh / status can find it)
@@ -211,22 +228,29 @@ EOF
   TIMEOUT_GUARD="$SCRIPT_DIR/timeout-guard.sh"
   nohup bash "$TIMEOUT_GUARD" \
     --label "$LABEL" --session "$SESSION" --socket "$SOCKET" --timeout 7200 \
-    > "/tmp/cc-${LABEL}-timeout.log" 2>&1 &
+    > "$RUNS_DIR/timeout.log" 2>&1 &
   echo "TIMEOUT_GUARD_PID=$!"
 
-  # Build the headless command: claude -p reads from prompt file, outputs stream-json
-  HEADLESS_CMD="unset CLAUDECODE && cd '$WORKDIR' && claude -p \"\$(cat '$PROMPT_TMP')\" --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 | tee '$STREAM_LOG'"
+  # Build the headless runner script to avoid tmux send-keys truncation with long paths
+  RUNNER_SCRIPT="$RUNS_DIR/runner.sh"
+  cat > "$RUNNER_SCRIPT" <<RUNNER_EOF
+#!/usr/bin/env bash
+set -uo pipefail
+unset CLAUDECODE
+cd '$WORKDIR'
+claude -p "\$(cat '$PROMPT_TMP')" --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 | tee '$STREAM_LOG'
+EXIT_CODE=\$?
+echo "CLAUDE_EXIT_CODE=\$EXIT_CODE" >> '$STREAM_LOG'
+if [ ! -f '$REPORT_JSON' ]; then
+  bash '$COMPLETE_SCRIPT' --label '$LABEL' --workdir '$WORKDIR' --lint-cmd '${LINT_CMD}' --build-cmd '${BUILD_CMD}' --no-wake
+fi
+bash '$WAKE_SCRIPT' 'Claude Code done (${LABEL}) report=$REPORT_JSON' now
+exit 0
+RUNNER_EOF
+  chmod +x "$RUNNER_SCRIPT"
 
-  # After claude -p finishes: run complete-tmux-task.sh as fallback if no report,
-  # then trigger wake, then exit tmux session
-  POST_CMD=""
-  POST_CMD+=" ; EXIT_CODE=\$?"
-  POST_CMD+=" ; echo \"CLAUDE_EXIT_CODE=\$EXIT_CODE\" >> '$STREAM_LOG'"
-  POST_CMD+=" ; if [ ! -f '$REPORT_JSON' ]; then bash '$COMPLETE_SCRIPT' --label '$LABEL' --workdir '$WORKDIR' --lint-cmd '${LINT_CMD}' --build-cmd '${BUILD_CMD}' --no-wake; fi"
-  POST_CMD+=" ; bash '$WAKE_SCRIPT' 'Claude Code done (${LABEL}) report=$REPORT_JSON' now"
-  POST_CMD+=" ; exit 0"
-
-  tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -l -- "${HEADLESS_CMD}${POST_CMD}"
+  # Use exec so runner replaces zsh → pane dies on exit → pane-died hook fires
+  tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -l -- "exec bash '$RUNNER_SCRIPT'"
   tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 Enter
 
   echo "MODE=headless"
@@ -306,7 +330,7 @@ if [[ "$TARGET" != "ssh" ]]; then
   TIMEOUT_GUARD="$SCRIPT_DIR/timeout-guard.sh"
   nohup bash "$TIMEOUT_GUARD" \
     --label "$LABEL" --session "$SESSION" --socket "$SOCKET" --timeout 7200 \
-    > "/tmp/cc-${LABEL}-timeout.log" 2>&1 &
+    > "$RUNS_DIR/timeout.log" 2>&1 &
   echo "TIMEOUT_GUARD_PID=$!"
 fi
 
@@ -385,7 +409,7 @@ fi
 
 # ========== 启动执行日志捕获（后台） ==========
 CAPTURE_SCRIPT="$SCRIPT_DIR/capture-execution.sh"
-CAPTURE_PID_FILE="/tmp/${SESSION}-capture.pid"
+CAPTURE_PID_FILE="$RUNS_DIR/capture.pid"
 
 # 停止旧的捕获进程（如果有）
 if [[ -f "$CAPTURE_PID_FILE" ]]; then
@@ -400,21 +424,23 @@ fi
 if [[ -x "$CAPTURE_SCRIPT" ]]; then
   if [[ "$TARGET" == "ssh" ]]; then
     nohup bash "$CAPTURE_SCRIPT" \
+      --label "$LABEL" \
       --session "$SESSION" \
       --socket "$SOCKET" \
       --target ssh \
       --ssh-host "$SSH_HOST" \
       --interval 15 \
-      > "/tmp/${SESSION}-capture.log" 2>&1 &
+      > "$RUNS_DIR/capture.log" 2>&1 &
   else
     nohup bash "$CAPTURE_SCRIPT" \
+      --label "$LABEL" \
       --session "$SESSION" \
       --socket "$SOCKET" \
       --interval 15 \
-      > "/tmp/${SESSION}-capture.log" 2>&1 &
+      > "$RUNS_DIR/capture.log" 2>&1 &
   fi
   echo $! > "$CAPTURE_PID_FILE"
   echo "CAPTURE_PID=$(cat "$CAPTURE_PID_FILE")"
-  echo "CAPTURE_LOG=/tmp/${SESSION}-capture.log"
+  echo "CAPTURE_LOG=$RUNS_DIR/capture.log"
 fi
 # ========== 执行日志捕获启动完成 ==========

@@ -72,7 +72,8 @@ Task times out → timeout-guard.sh
 ### File Conventions
 
 - Sessions: `cc-<label>`
-- All temp files: `/tmp/cc-<label>-{stream.jsonl, completion-report.json, completion-report.md, prompt.txt, execution-events.jsonl, execution-summary.json, capture.pid, timeout.pid, diagnosis.json, on-exit.log, timeout.log}`
+- Task run artifacts: `skills/claude-code-orchestrator/runs/<label>/` — each task gets its own directory containing `prompt.txt`, `stream.jsonl`, `completion-report.json`, `completion-report.md`, `execution-events.jsonl`, `execution-summary.json`, `diagnosis.json`, `on-exit.log`, `timeout.log`, `capture.log`, `timeout.pid`, `capture.pid`
+- Remaining in `/tmp`: tmux socket (`clawdbot-tmux-sockets/`), watchdog state (`cc-watchdog-state.json`), SSH remote temp files (`cc-<label>-reference-*`)
 - Persistent history: `skills/claude-code-orchestrator/TASK_HISTORY.jsonl`
 - Deployed production copy: `~/.openclaw/workspace/skills/claude-code-orchestrator/`
 
@@ -85,7 +86,8 @@ All scripts follow these patterns:
 - **Validation**: `[[ -n "$VAR" ]] || { echo "Usage: ..."; exit 1; }`
 - **SCRIPT_DIR**: `SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"`
 - **JSON generation**: Always `jq -n --arg/--argjson` — never string concatenation
-- **Background processes**: Track PID in `/tmp/cc-<label>-*.pid`, cleanup with `kill -0 ... && kill ... || true`
+- **RUNS_DIR**: `RUNS_DIR="$SCRIPT_DIR/../runs/$LABEL"` — all task artifacts go here, not `/tmp`
+- **Background processes**: Track PID in `$RUNS_DIR/*.pid`, cleanup with `kill -0 ... && kill ... || true`
 - **Non-critical failures**: `|| true` or `>/dev/null 2>&1 || true`
 - **Pattern matching**: `rg -q "pattern"` (not grep) for pane content checks
 - **SSH duality**: `--target ssh --ssh-host <alias>` with `-o BatchMode=yes` and explicit PATH
