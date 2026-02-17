@@ -200,6 +200,20 @@ EOF
   # Run claude -p in a tmux session (so list-tasks.sh / status can find it)
   tmux -S "$SOCKET" new -d -s "$SESSION" -n shell
 
+  # remain-on-exit keeps the pane alive after process exits so pane-died hook can fire
+  tmux -S "$SOCKET" set-option -t "$SESSION" remain-on-exit on
+
+  # Set pane-died hook for crash detection (pure shell, no LLM cost)
+  tmux -S "$SOCKET" set-hook -t "$SESSION" pane-died \
+    "run-shell 'bash \"$SCRIPT_DIR/on-session-exit.sh\" --label \"$LABEL\" --session \"$SESSION\" --socket \"$SOCKET\"'"
+
+  # Start timeout guard in background (default 2h)
+  TIMEOUT_GUARD="$SCRIPT_DIR/timeout-guard.sh"
+  nohup bash "$TIMEOUT_GUARD" \
+    --label "$LABEL" --session "$SESSION" --socket "$SOCKET" --timeout 7200 \
+    > "/tmp/cc-${LABEL}-timeout.log" 2>&1 &
+  echo "TIMEOUT_GUARD_PID=$!"
+
   # Build the headless command: claude -p reads from prompt file, outputs stream-json
   HEADLESS_CMD="unset CLAUDECODE && cd '$WORKDIR' && claude -p \"\$(cat '$PROMPT_TMP')\" --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 | tee '$STREAM_LOG'"
 
@@ -275,6 +289,25 @@ else
   tmux -S "$SOCKET" new -d -s "$SESSION" -n shell
   tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -l -- "unset CLAUDECODE && cd $WORKDIR && claude --dangerously-skip-permissions"
   tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 Enter
+fi
+
+# remain-on-exit + pane-died hook for crash detection (both local and SSH)
+if [[ "$TARGET" == "ssh" ]]; then
+  ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH; tmux -S '$SOCKET' set-option -t '$SESSION' remain-on-exit on"
+  ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH; tmux -S '$SOCKET' set-hook -t '$SESSION' pane-died \"run-shell 'bash \\\"$SCRIPT_DIR/on-session-exit.sh\\\" --label \\\"$LABEL\\\" --session \\\"$SESSION\\\" --socket \\\"$SOCKET\\\"'\""
+else
+  tmux -S "$SOCKET" set-option -t "$SESSION" remain-on-exit on
+  tmux -S "$SOCKET" set-hook -t "$SESSION" pane-died \
+    "run-shell 'bash \"$SCRIPT_DIR/on-session-exit.sh\" --label \"$LABEL\" --session \"$SESSION\" --socket \"$SOCKET\"'"
+fi
+
+# Start timeout guard in background (default 2h, local only)
+if [[ "$TARGET" != "ssh" ]]; then
+  TIMEOUT_GUARD="$SCRIPT_DIR/timeout-guard.sh"
+  nohup bash "$TIMEOUT_GUARD" \
+    --label "$LABEL" --session "$SESSION" --socket "$SOCKET" --timeout 7200 \
+    > "/tmp/cc-${LABEL}-timeout.log" 2>&1 &
+  echo "TIMEOUT_GUARD_PID=$!"
 fi
 
 # Wait until Claude UI is ready before paste
