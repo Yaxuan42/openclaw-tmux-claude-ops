@@ -86,11 +86,14 @@ EDWARD_USER_ID="ou_e5eb026fddb0fe05895df71a56f65e2f"
 
 # Send notification to Edward's private chat via OpenClaw message tool
 # This ensures he always gets notified regardless of which session triggered the task
+# Note: idempotencyKey is required since OpenClaw v2026.2.12
+IDEM_KEY="wake-$(date +%s)-$$"
 openclaw gateway call agent --params "{
   \"message\": \"$TEXT\",
   \"channel\": \"feishu\",
   \"to\": \"user:$EDWARD_USER_ID\",
-  \"deliver\": true
+  \"deliver\": true,
+  \"idempotencyKey\": \"$IDEM_KEY\"
 }" --timeout 30000 >/dev/null 2>&1 || true
 
 # Also trigger wake for session continuity
