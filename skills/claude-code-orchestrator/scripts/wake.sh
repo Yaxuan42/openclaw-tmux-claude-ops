@@ -79,6 +79,37 @@ if [[ -n "$REPORT_PATH" && -f "$REPORT_PATH" ]]; then
     }' >> "$HISTORY_FILE" 2>/dev/null || true
 fi
 
+# ── Build rich notification message ──
+# Priority: stream.jsonl result (Claude's own summary) > report notes > raw TEXT
+NOTIFY_MSG="$TEXT"
+
+if [[ -n "$REPORT_PATH" && -f "$REPORT_PATH" ]]; then
+  _summary=""
+
+  # Try stream.jsonl first — contains Claude Code's own completion summary
+  _stream_log="/tmp/cc-${_label}-stream.jsonl"
+  if [[ -f "$_stream_log" ]]; then
+    _summary=$(grep '"subtype":"success"' "$_stream_log" 2>/dev/null | tail -1 | jq -r '.result // ""' 2>/dev/null || echo "")
+  fi
+
+  # Fallback: report notes field
+  if [[ -z "$_summary" ]]; then
+    _summary=$(jq -r '.notes // ""' "$REPORT_PATH" 2>/dev/null || echo "")
+  fi
+
+  if [[ -n "$_summary" ]]; then
+    # Prefix with status + label header
+    if [[ "$_success" == true ]]; then
+      NOTIFY_MSG="[Done] $_label
+$_summary"
+    else
+      NOTIFY_MSG="[Done - issues] $_label
+$_summary
+Issue: $_failure_reason"
+    fi
+  fi
+fi
+
 # ── Send notifications ──
 
 # Edward's Feishu user ID for direct notification
@@ -90,10 +121,10 @@ openclaw message send \
   --channel feishu \
   --account main \
   --target "$EDWARD_USER_ID" \
-  -m "$TEXT" \
+  -m "$NOTIFY_MSG" \
   >/dev/null 2>&1 || true
 
-# Channel 2: Trigger gateway wake for session continuity
+# Channel 2: Trigger gateway wake for session continuity (use raw TEXT, not rich msg)
 PARAMS="{\"text\":\"${TEXT//\"/\\\"}\",\"mode\":\"$MODE\"}"
 if openclaw gateway call wake --params "$PARAMS" >/dev/null 2>&1; then
   echo "ok"
