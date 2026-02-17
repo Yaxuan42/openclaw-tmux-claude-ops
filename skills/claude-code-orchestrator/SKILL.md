@@ -37,6 +37,26 @@ bash {baseDir}/scripts/start-tmux-task.sh \
   --task "参考这个修改我当前的画廊官网，注意优先打磨细节和质感，对整体结构展示先不用大改。"
 ```
 
+## Headless mode (non-interactive)
+
+For well-defined tasks that don't need human intervention, use headless mode for faster execution and structured output:
+
+```bash
+bash {baseDir}/scripts/start-tmux-task.sh \
+  --label "diagnose-failure" \
+  --workdir "/path/to/project" \
+  --prompt-file "/tmp/task-prompt.txt" \
+  --mode headless
+```
+
+Headless mode uses `claude -p --output-format stream-json --verbose`, producing:
+- `/tmp/cc-<label>-stream.jsonl` — complete structured event log (every tool call, result, error)
+- Same completion artifacts as interactive mode (report, wake, history)
+
+**When to use headless vs interactive:**
+- **Headless**: clear requirements, single-pass implementation, code generation, file edits
+- **Interactive**: exploratory work, debugging, tasks needing human approval mid-stream
+
 ## Monitor commands
 
 ```bash
@@ -82,6 +102,7 @@ bash {baseDir}/scripts/list-tasks.sh --json | \
 - If no pane output for >2-3 min, inspect and restart session.
 - Kill stale Claude processes before restart.
 - Always return: session name + attach command + current status.
+- For failed tasks, run `diagnose-failure.sh --label <label>` before deciding whether to retry or escalate.
 
 ## Status check (zero-token)
 
@@ -194,6 +215,46 @@ bash {baseDir}/scripts/analyze-history.sh --markdown
 - 最近 7 天趋势
 - 常见失败模式
 - 针对性优化建议
+
+### 失败诊断
+
+当任务失败或卡住时，自动分析原因：
+
+```bash
+bash {baseDir}/scripts/diagnose-failure.sh --label <label>
+```
+
+支持 4 种数据源（按优先级）：stream.jsonl → execution-events.jsonl → completion-report.json → tmux pane capture
+
+检测 8 种失败模式：
+- `edit_loop` — 同一文件反复编辑 >5 次
+- `rate_limit` — API 限流 (429)
+- `context_overflow` — 上下文窗口溢出
+- `timeout` — 执行超时
+- `permission` — 权限不足
+- `git_conflict` — Git 合并冲突
+- `dependency_missing` — 依赖/文件缺失
+- `code_error` — 代码语法/类型错误
+
+输出 `/tmp/cc-<label>-diagnosis.json`，包含 failureCategory、confidence、evidence、suggestion、retryable 等字段。
+
+### 任务巡检（Watchdog）
+
+每 10 分钟自动巡检所有 cc-* tmux 会话：
+
+```bash
+bash {baseDir}/scripts/watchdog.sh
+```
+
+检测异常状态：
+- `dead` — 会话已不存在
+- `stuck` — 超过 30 分钟无输出变化
+- `likely_done` — 任务可能已完成但未收到通知
+- `long_running` — 运行超过 2 小时
+
+异常任务会自动触发 `diagnose-failure.sh` 分析原因，并通过飞书 DM 通知 Edward。
+
+已配置为 OpenClaw cron job（每 10 分钟），无需手动运行。
 
 ### 派活前检查（推荐流程）
 
