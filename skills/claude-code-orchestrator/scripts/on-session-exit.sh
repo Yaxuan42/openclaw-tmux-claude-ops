@@ -30,7 +30,9 @@ REPORT_JSON="$RUNS_DIR/completion-report.json"
 DIAGNOSE_SCRIPT="$SCRIPT_DIR/diagnose-failure.sh"
 HISTORY_FILE="$SCRIPT_DIR/../TASK_HISTORY.jsonl"
 
-EDWARD_USER_ID="ou_e5eb026fddb0fe05895df71a56f65e2f"
+# Notification target: set OPENCLAW_CC_ALERT_TARGET env var (e.g. Feishu user ID).
+# If unset, notifications are skipped (log-only).
+ALERT_TARGET="${OPENCLAW_CC_ALERT_TARGET:-}"
 
 LOG_FILE="$RUNS_DIR/on-exit.log"
 exec >> "$LOG_FILE" 2>&1
@@ -99,13 +101,17 @@ notify_msg="[Claude Code 异常退出] 任务 ${LABEL} 的 tmux session 已终�
 建议: ${suggestion}
 日志: $RUNS_DIR/on-exit.log"
 
-echo "Sending Feishu notification..."
-openclaw message send \
-  --channel feishu \
-  --account main \
-  --target "$EDWARD_USER_ID" \
-  -m "$notify_msg" \
-  >/dev/null 2>&1 || echo "WARN: Failed to send Feishu notification"
+if [[ -n "$ALERT_TARGET" ]]; then
+  echo "Sending Feishu notification..."
+  openclaw message send \
+    --channel feishu \
+    --account main \
+    --target "$ALERT_TARGET" \
+    -m "$notify_msg" \
+    >/dev/null 2>&1 || echo "WARN: Failed to send Feishu notification"
+else
+  echo "WARN: OPENCLAW_CC_ALERT_TARGET not set — skipping Feishu notification"
+fi
 
 # Record to TASK_HISTORY
 jq -n -c \

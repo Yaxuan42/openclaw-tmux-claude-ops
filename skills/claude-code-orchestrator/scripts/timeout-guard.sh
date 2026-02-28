@@ -34,7 +34,9 @@ PID_FILE="$RUNS_DIR/timeout.pid"
 DIAGNOSE_SCRIPT="$SCRIPT_DIR/diagnose-failure.sh"
 HISTORY_FILE="$SCRIPT_DIR/../TASK_HISTORY.jsonl"
 
-EDWARD_USER_ID="ou_e5eb026fddb0fe05895df71a56f65e2f"
+# Notification target: set OPENCLAW_CC_ALERT_TARGET env var (e.g. Feishu user ID).
+# If unset, notifications are skipped (log-only).
+ALERT_TARGET="${OPENCLAW_CC_ALERT_TARGET:-}"
 
 # Write PID file so other scripts (on-session-exit.sh) can kill us
 echo $$ > "$PID_FILE"
@@ -63,12 +65,16 @@ if [[ -f "$REPORT_JSON" ]]; then
 建议手动清理: tmux -S \"$SOCKET\" kill-session -t \"$SESSION\""
 
   echo "timeout-guard: report exists, session still alive — sending cleanup reminder"
-  openclaw message send \
-    --channel feishu \
-    --account main \
-    --target "$EDWARD_USER_ID" \
-    -m "$notify_msg" \
-    >/dev/null 2>&1 || echo "WARN: Failed to send Feishu notification"
+  if [[ -n "$ALERT_TARGET" ]]; then
+    openclaw message send \
+      --channel feishu \
+      --account main \
+      --target "$ALERT_TARGET" \
+      -m "$notify_msg" \
+      >/dev/null 2>&1 || echo "WARN: Failed to send Feishu notification"
+  else
+    echo "WARN: OPENCLAW_CC_ALERT_TARGET not set — skipping Feishu notification"
+  fi
   exit 0
 fi
 
@@ -99,12 +105,16 @@ notify_msg="[Claude Code 超时] 任务 ${LABEL} 运行超过 ${timeout_min} 分
 建议: ${suggestion}
 查看: tmux -S \"$SOCKET\" attach -t \"$SESSION\""
 
-openclaw message send \
-  --channel feishu \
-  --account main \
-  --target "$EDWARD_USER_ID" \
-  -m "$notify_msg" \
-  >/dev/null 2>&1 || echo "WARN: Failed to send Feishu notification"
+if [[ -n "$ALERT_TARGET" ]]; then
+  openclaw message send \
+    --channel feishu \
+    --account main \
+    --target "$ALERT_TARGET" \
+    -m "$notify_msg" \
+    >/dev/null 2>&1 || echo "WARN: Failed to send Feishu notification"
+else
+  echo "WARN: OPENCLAW_CC_ALERT_TARGET not set — skipping Feishu notification"
+fi
 
 # Record to TASK_HISTORY
 jq -n -c \

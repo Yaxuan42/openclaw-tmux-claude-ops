@@ -96,7 +96,7 @@ All scripts follow these patterns:
 ## Key Design Decisions
 
 - **Prompts are in Chinese** (task instructions, delivery protocol). JSON field names and script output are in English.
-- **Hardcoded Feishu user ID** (`ou_e5eb026fddb0fe05895df71a56f65e2f`) in `wake.sh`, `on-session-exit.sh`, `timeout-guard.sh` — this is Edward's DM target.
+- **Feishu notification target** is configured via `OPENCLAW_CC_ALERT_TARGET` env var (e.g. a Feishu user ID). If unset, Feishu DM notifications are skipped (log-only). Set it in your environment or `.env` for each deployment.
 - **`complete-tmux-task.sh` is a fallback** — Claude Code is expected to write its own completion report. The script only runs if Claude didn't produce one.
 - **`TASK_HISTORY.jsonl` is written by `wake.sh`** (on normal completion) and by `on-session-exit.sh`/`timeout-guard.sh` (on failure/timeout). Not by `complete-tmux-task.sh`.
 - **`MANIFEST.sha256`** only covers the original files — newer scripts (`diagnose-failure.sh`, `on-session-exit.sh`, `timeout-guard.sh`, `watchdog.sh`, `analyze-history.sh`, `capture-execution.sh`) are not yet in the manifest.

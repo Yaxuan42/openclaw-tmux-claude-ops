@@ -130,17 +130,20 @@ fi
 
 # ── Send notifications ──
 
-# Edward's Feishu user ID for direct notification
-EDWARD_USER_ID="ou_e5eb026fddb0fe05895df71a56f65e2f"
+# Notification target: set OPENCLAW_CC_ALERT_TARGET env var (e.g. Feishu user ID).
+# If unset, Feishu DM is skipped (gateway wake still fires).
+ALERT_TARGET="${OPENCLAW_CC_ALERT_TARGET:-}"
 
 # Channel 1: Direct Feishu DM via openclaw message send (most reliable)
 # Note: must use --account main (feishu account name in openclaw.json)
-openclaw message send \
-  --channel feishu \
-  --account main \
-  --target "$EDWARD_USER_ID" \
-  -m "$NOTIFY_MSG" \
-  >/dev/null 2>&1 || true
+if [[ -n "$ALERT_TARGET" ]]; then
+  openclaw message send \
+    --channel feishu \
+    --account main \
+    --target "$ALERT_TARGET" \
+    -m "$NOTIFY_MSG" \
+    >/dev/null 2>&1 || true
+fi
 
 # Channel 2: Trigger gateway wake for session continuity (use raw TEXT, not rich msg)
 PARAMS="{\"text\":\"${TEXT//\"/\\\"}\",\"mode\":\"$MODE\"}"
