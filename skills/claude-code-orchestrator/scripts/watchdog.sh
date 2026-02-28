@@ -7,21 +7,34 @@ set -euo pipefail
 # Actions:
 #   - dead tasks (session gone, no report): notify Edward
 #   - stuck tasks (running >2h with error signals): notify Edward
-#   - likely_done tasks (report exists, session still alive): notify + cleanup hint
+#   - likely_done / done_session_ended tasks with report: one-time delivery push via wake.sh
 #   - running tasks >3h: warn Edward about long-running task
+#
+# Delivery gap fix: for completed tasks with a report, watchdog now triggers
+# a full delivery push through wake.sh (with report path) exactly once.
+# Subsequent runs stay silent for already-delivered labels.
 #
 # Output: JSON summary for cron delivery, or "HEARTBEAT_OK" if nothing to report.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIST_SCRIPT="$SCRIPT_DIR/list-tasks.sh"
 WAKE_SCRIPT="$SCRIPT_DIR/wake.sh"
+RUNS_DIR="$SCRIPT_DIR/../runs"
 
 SOCKET="${TMPDIR:-/tmp}/clawdbot-tmux-sockets/clawdbot.sock"
 STALE_FILE="/tmp/cc-watchdog-state.json"
+DELIVERED_FILE="/tmp/cc-watchdog-delivered.json"
 
 # Thresholds (seconds)
 STUCK_THRESHOLD=7200    # 2 hours
 LONG_THRESHOLD=10800    # 3 hours
+
+# ── Load delivered-labels tracker ──────────────────────────────────
+if [[ -f "$DELIVERED_FILE" ]]; then
+  delivered_state="$(cat "$DELIVERED_FILE")"
+else
+  delivered_state="{}"
+fi
 
 # ── Get task list ────────────────────────────────────────────────────
 tasks_json="$(bash "$LIST_SCRIPT" --json --socket "$SOCKET" 2>/dev/null || echo "[]")"
@@ -71,8 +84,33 @@ for i in $(seq 0 $((task_count - 1))); do
         '{label:$l, status:$s, age_min:($a/60|floor), action:"Task appears stuck (error signals detected). Consider checking or killing session."}')")
       ;;
     likely_done|done_session_ended)
-      alerts+=("$(jq -n -c --arg l "$label" --arg s "$status" --argjson a "$age" \
-        '{label:$l, status:$s, age_min:($a/60|floor), action:"Task completed. Report available. Session can be cleaned up."}')")
+      # ── One-time delivery push for completed tasks with reports ──
+      report_path="$RUNS_DIR/$label/completion-report.json"
+      already_delivered="$(echo "$delivered_state" | jq -r --arg l "$label" '.[$l] // ""')"
+
+      if [[ -f "$report_path" && -z "$already_delivered" ]]; then
+        # Extract delivery summary fields (with fallbacks for missing fields)
+        _risk="$(jq -r '.risk // "unknown"' "$report_path" 2>/dev/null || echo "unknown")"
+        _rec="$(jq -r '.recommendation // "unknown"' "$report_path" 2>/dev/null || echo "unknown")"
+        _notes="$(jq -r '.notes // "No notes available"' "$report_path" 2>/dev/null || echo "No notes available")"
+        # Truncate notes to 240 chars
+        if [[ ${#_notes} -gt 240 ]]; then
+          _notes="${_notes:0:237}..."
+        fi
+
+        # Trigger full delivery via wake.sh (with report path for history + rich notification)
+        bash "$WAKE_SCRIPT" \
+          "Claude Code done ($label) report=$report_path" now 2>/dev/null || true
+
+        # Mark as delivered
+        delivered_state="$(echo "$delivered_state" | jq --arg l "$label" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          '. + {($l): $t}')"
+
+        alerts+=("$(jq -n -c --arg l "$label" --arg s "$status" --argjson a "$age" \
+          --arg risk "$_risk" --arg rec "$_rec" --arg notes "$_notes" \
+          '{label:$l, status:$s, age_min:($a/60|floor), risk:$risk, recommendation:$rec, notes:$notes, action:"Delivery push sent. Report available."}')")
+      fi
+      # Already delivered: stay silent — no alert added
       ;;
     running|idle)
       if [[ "$age" -ge "$LONG_THRESHOLD" ]]; then
@@ -89,6 +127,9 @@ done
 
 # Save state for next run
 echo "$new_state" | jq '.' > "$STALE_FILE"
+
+# Save delivered-labels tracker
+echo "$delivered_state" | jq '.' > "$DELIVERED_FILE"
 
 # ── Report ───────────────────────────────────────────────────────────
 if [[ ${#alerts[@]} -eq 0 ]]; then
