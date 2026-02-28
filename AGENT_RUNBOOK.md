@@ -49,6 +49,17 @@ ssh macbook 'which tmux && tmux -V && which claude && claude --version && which 
 - mini → macbook：ssh 可连
 - macbook → mini：ssh 可连（用于回传报告 + wake）
 
+### C. 交互 vs 非交互模式
+
+| 模式 | 参数 | 适用场景 | 特点 |
+|------|------|---------|------|
+| **interactive**（默认） | `--mode interactive` | 复杂、需要人工介入 | 可 attach 接管，capture 后台采样 |
+| **headless** | `--mode headless` | 明确、单次执行 | `claude -p` + stream-json，原生结构化日志 |
+
+两种模式都会自动配置：
+- `on-session-exit.sh`（tmux pane-died hook，异常退出自动诊断 + 告警）
+- `timeout-guard.sh`（后台超时看门狗，默认 2h）
+
 ## 3) 启动一个任务（唯一入口）
 
 ### 3.1 local 启动
@@ -60,7 +71,23 @@ bash skills/claude-code-orchestrator/scripts/start-tmux-task.sh \
   --task "<task_text>"
 ```
 
-### 3.2 ssh 启动（在 macbook 上跑）
+### 3.2 headless 启动（非交互，结构化日志）
+```bash
+bash skills/claude-code-orchestrator/scripts/start-tmux-task.sh \
+  --label "<label>" \
+  --workdir "<repo_dir>" \
+  --prompt-file "<reference_doc_path>" \
+  --task "<task_text>" \
+  --mode headless
+```
+
+说明：
+- 使用 `claude -p --output-format stream-json --verbose`，输出到 `/tmp/cc-<label>-stream.jsonl`。
+- Claude 退出后自动链式触发：`complete-tmux-task.sh`（兜底）→ `wake.sh`（通知 + 记录）。
+- 适合明确、可一次完成的任务（代码生成、文件编辑、脚本编写）。
+- 可并行启动多个 headless 任务。
+
+### 3.3 ssh 启动（在 macbook 上跑）
 ```bash
 bash skills/claude-code-orchestrator/scripts/start-tmux-task.sh \
   --target ssh \
@@ -166,6 +193,12 @@ bash skills/claude-code-orchestrator/scripts/monitor-tmux-task.sh \
 - 最后一步触发 wake：
   - local：直接调用 `wake.sh`
   - ssh：先 `scp` 报告回 mini，再 `ssh mini` 调用 `wake.sh`
+  - headless：claude 退出后自动链式触发（无需手动）
+
+通知流程：
+- **正常完成**：wake.sh 提取 Claude 自己的完成摘要（优先从 stream.jsonl，其次 report.notes），发送飞书 DM 富通知 + gateway wake + 记录 TASK_HISTORY。
+- **异常退出**：on-session-exit.sh 自动运行诊断，发送飞书 DM 告警，记录失败到 TASK_HISTORY。
+- **超时**：timeout-guard.sh 自动诊断并通知。
 
 若 wake 已到但报告缺失：
 ```bash
@@ -184,6 +217,22 @@ bash skills/claude-code-orchestrator/scripts/start-tmux-task.sh \
   --label <label> --workdir <repo_dir> --prompt-file <file> --task <text> \
   --lint-cmd "make lint" --build-cmd "make build"
 ```
+
+## 5.5) 失败诊断
+
+当任务失败或卡住时，自动分析原因：
+
+```bash
+bash skills/claude-code-orchestrator/scripts/diagnose-failure.sh --label <label>
+```
+
+支持 4 种数据源（按优先级）：`stream.jsonl` → `execution-events.jsonl` → `completion-report.json` → tmux pane capture
+
+检测 8 种失败模式：`edit_loop`、`rate_limit`、`context_overflow`、`timeout`、`permission`、`git_conflict`、`dependency_missing`、`code_error`
+
+输出 `/tmp/cc-<label>-diagnosis.json`。
+
+注意：`on-session-exit.sh` 和 `timeout-guard.sh` 会自动运行诊断，通常不需要手动调用。
 
 ## 6) 安全边界（必须遵守）
 - 这套流程本质是远程代码执行，SSH key 必须最小权限。

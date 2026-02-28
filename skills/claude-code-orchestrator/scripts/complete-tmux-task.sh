@@ -28,11 +28,17 @@ if [[ -z "$LABEL" || -z "$WORKDIR" ]]; then
 fi
 
 SESSION="${SESSION:-cc-${LABEL}}"
-REPORT_JSON="/tmp/${SESSION}-completion-report.json"
-REPORT_MD="/tmp/${SESSION}-completion-report.md"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNS_DIR="$SCRIPT_DIR/../runs/$LABEL"
+mkdir -p "$RUNS_DIR"
+
+REPORT_JSON="$RUNS_DIR/completion-report.json"
+REPORT_MD="$RUNS_DIR/completion-report.md"
 WAKE_SCRIPT="$SCRIPT_DIR/wake.sh"
+HISTORY_FILE="$SCRIPT_DIR/../TASK_HISTORY.jsonl"
+EXECUTION_LOG="$RUNS_DIR/execution-events.jsonl"
+EXECUTION_SUMMARY="$RUNS_DIR/execution-summary.json"
 
 cd "$WORKDIR"
 
@@ -118,6 +124,73 @@ EOF
 
 echo "REPORT_JSON=$REPORT_JSON"
 echo "REPORT_MD=$REPORT_MD"
+
+# ========== 闭环反馈：记录任务历史 ==========
+
+# 判断任务是否成功
+task_success=true
+failure_reason=""
+
+if [[ "$lint_ok" != true ]]; then
+  task_success=false
+  failure_reason="lint_failed"
+elif [[ "$build_ok" != true ]]; then
+  task_success=false
+  failure_reason="build_failed"
+elif [[ -z "$changed_files" ]]; then
+  # 没有任何改动可能意味着任务没有真正执行
+  task_success=false
+  failure_reason="no_changes"
+fi
+
+# 从执行日志中提取错误信息（如果有）
+if [[ -f "$EXECUTION_LOG" ]] && [[ "$task_success" != true ]]; then
+  error_detail=$(grep '"event":"tool_error"' "$EXECUTION_LOG" 2>/dev/null | tail -3 | jq -r '.detail' 2>/dev/null | tr '\n' '; ' | head -c 200 || echo "")
+  if [[ -n "$error_detail" ]]; then
+    failure_reason="${failure_reason}: ${error_detail}"
+  fi
+fi
+
+# 从执行摘要中获取统计信息
+exec_duration=0
+exec_errors=0
+if [[ -f "$EXECUTION_SUMMARY" ]]; then
+  exec_duration=$(jq -r '.durationSeconds // 0' "$EXECUTION_SUMMARY" 2>/dev/null || echo "0")
+  exec_errors=$(jq -r '.eventCounts.errors // 0' "$EXECUTION_SUMMARY" 2>/dev/null || echo "0")
+fi
+
+# 写入历史记录
+jq -n -c \
+  --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+  --arg label "$LABEL" \
+  --arg workdir "$WORKDIR" \
+  --argjson success "$task_success" \
+  --arg failure_reason "$failure_reason" \
+  --arg risk "$risk" \
+  --arg recommendation "$recommendation" \
+  --argjson duration "$exec_duration" \
+  --argjson errors "$exec_errors" \
+  --argjson files_changed "$(echo "$changed_files" | grep -c . || echo 0)" \
+  '{
+    timestamp: $timestamp,
+    label: $label,
+    workdir: $workdir,
+    success: $success,
+    failureReason: $failure_reason,
+    risk: $risk,
+    recommendation: $recommendation,
+    durationSeconds: $duration,
+    executionErrors: $errors,
+    filesChanged: $files_changed
+  }' >> "$HISTORY_FILE"
+
+echo "HISTORY_RECORDED=true"
+echo "TASK_SUCCESS=$task_success"
+if [[ "$task_success" != true ]]; then
+  echo "FAILURE_REASON=$failure_reason"
+fi
+
+# ========== 闭环反馈结束 ==========
 
 if [[ "$SEND_WAKE" == true ]]; then
   bash "$WAKE_SCRIPT" "Claude Code done (${LABEL}) report=$REPORT_JSON" now
