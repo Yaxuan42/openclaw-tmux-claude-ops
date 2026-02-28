@@ -40,11 +40,6 @@ fi
 tasks_json="$(bash "$LIST_SCRIPT" --json --socket "$SOCKET" 2>/dev/null || echo "[]")"
 task_count="$(echo "$tasks_json" | jq 'length')"
 
-if [[ "$task_count" -eq 0 ]]; then
-  echo "HEARTBEAT_OK"
-  exit 0
-fi
-
 # ── Load previous state for age tracking ─────────────────────────────
 # We track when we first saw each session to estimate runtime
 if [[ -f "$STALE_FILE" ]]; then
@@ -123,6 +118,29 @@ for i in $(seq 0 $((task_count - 1))); do
       # Normal running tasks within threshold: no alert
       ;;
   esac
+done
+
+
+# Also detect completed reports even when no active tmux sessions exist.
+# This closes the gap: "session ended, report exists, but user never got delivery".
+for report_path in "$RUNS_DIR"/*/completion-report.json; do
+  [[ -f "$report_path" ]] || continue
+  label="$(basename "$(dirname "$report_path")")"
+  already_delivered="$(echo "$delivered_state" | jq -r --arg l "$label" '.[$l] // ""')"
+  if [[ -n "$already_delivered" ]]; then
+    continue
+  fi
+
+  _risk="$(jq -r '.risk // "unknown"' "$report_path" 2>/dev/null || echo "unknown")"
+  _rec="$(jq -r '.recommendation // "unknown"' "$report_path" 2>/dev/null || echo "unknown")"
+  _notes="$(jq -r '.notes // "No notes available"' "$report_path" 2>/dev/null || echo "No notes available")"
+  if [[ ${#_notes} -gt 240 ]]; then
+    _notes="${_notes:0:237}..."
+  fi
+
+  bash "$WAKE_SCRIPT" "Claude Code done ($label) report=$report_path" now 2>/dev/null || true
+  delivered_state="$(echo "$delivered_state" | jq --arg l "$label" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '. + {($l): $t}')"
+  alerts+=("$(jq -n -c --arg l "$label" --arg risk "$_risk" --arg rec "$_rec" --arg notes "$_notes" '{label:$l, status:"done_report_only", age_min:0, risk:$risk, recommendation:$rec, notes:$notes, action:"Delivery push sent from runs/ report (session already ended)."}')")
 done
 
 # Save state for next run
