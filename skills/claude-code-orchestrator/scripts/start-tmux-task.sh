@@ -38,6 +38,12 @@ done
   exit 1
 }
 
+# Validate LABEL: only allow safe characters to prevent injection
+if [[ ! "$LABEL" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+  echo "ERROR: LABEL must contain only alphanumeric characters, dots, underscores, and hyphens (got: '$LABEL')"
+  exit 2
+fi
+
 # Auto-detect lint/build commands if not explicitly provided
 if [[ -z "$LINT_CMD" && -z "$BUILD_CMD" && -f "$WORKDIR/package.json" ]]; then
   LINT_CMD="npm run lint"
@@ -79,15 +85,14 @@ COMPLETE_SCRIPT="$SCRIPT_DIR/complete-tmux-task.sh"
 # Wake instructions differ for local vs remote execution.
 WAKE_INSTRUCTIONS="bash \"$WAKE_SCRIPT\" \"Claude Code done (${LABEL}) report=$REPORT_JSON\" now"
 if [[ "$TARGET" == "ssh" ]]; then
-  WAKE_INSTRUCTIONS=$(cat <<EOF
-# 1) 把报告文件复制回 Mac mini（本机）
-scp -q "$REPORT_JSON" "${MINI_HOST}:$REPORT_JSON"
-scp -q "$REPORT_MD" "${MINI_HOST}:$REPORT_MD"
+  # Use double-quoted string so all variables expand explicitly at prompt-generation time.
+  # The ssh remote command is single-quoted to preserve inner double quotes for the remote shell.
+  WAKE_INSTRUCTIONS="# 1) 把报告文件复制回 Mac mini（本机）
+scp -q \"${REPORT_JSON}\" \"${MINI_HOST}:${REPORT_JSON}\"
+scp -q \"${REPORT_MD}\" \"${MINI_HOST}:${REPORT_MD}\"
 
 # 2) 在 Mac mini 上触发 wake（只允许最后一步做）
-ssh "$MINI_HOST" 'bash "$WAKE_SCRIPT" "Claude Code done (${LABEL}) report=$REPORT_JSON" now'
-EOF
-)
+ssh \"${MINI_HOST}\" 'bash \"${WAKE_SCRIPT}\" \"Claude Code done (${LABEL}) report=${REPORT_JSON}\" now'"
 fi
 
 # Guardrail: fail fast if old wake syntax appears
@@ -120,8 +125,8 @@ fi
 
 # Kill old session if exists (both modes use tmux)
 if [[ "$TARGET" == "ssh" ]]; then
-  if ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; tmux -S '$SOCKET' has-session -t '$SESSION'" >/dev/null 2>&1; then
-    ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; tmux -S '$SOCKET' kill-session -t '$SESSION'"
+  if ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH; tmux -S '$SOCKET' has-session -t '$SESSION'" >/dev/null 2>&1; then
+    ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH; tmux -S '$SOCKET' kill-session -t '$SESSION'"
   fi
 else
   if tmux -S "$SOCKET" has-session -t "$SESSION" 2>/dev/null; then
@@ -243,14 +248,14 @@ EOF
 #!/usr/bin/env bash
 set -uo pipefail
 unset CLAUDECODE
-cd '$WORKDIR'
-claude -p "\$(cat '$PROMPT_TMP')" --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 | tee '$STREAM_LOG'
+cd "$WORKDIR"
+claude -p "\$(cat "$PROMPT_TMP")" --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 | tee "$STREAM_LOG"
 EXIT_CODE=\$?
-echo "CLAUDE_EXIT_CODE=\$EXIT_CODE" >> '$STREAM_LOG'
-if [ ! -f '$REPORT_JSON' ]; then
-  bash '$COMPLETE_SCRIPT' --label '$LABEL' --workdir '$WORKDIR' --lint-cmd '${LINT_CMD}' --build-cmd '${BUILD_CMD}' --no-wake
+echo "CLAUDE_EXIT_CODE=\$EXIT_CODE" >> "$STREAM_LOG"
+if [ ! -f "$REPORT_JSON" ]; then
+  bash "$COMPLETE_SCRIPT" --label "$LABEL" --workdir "$WORKDIR" --lint-cmd "${LINT_CMD}" --build-cmd "${BUILD_CMD}" --no-wake
 fi
-bash '$WAKE_SCRIPT' 'Claude Code done (${LABEL}) report=$REPORT_JSON' now
+bash "$WAKE_SCRIPT" "Claude Code done (${LABEL}) report=${REPORT_JSON}" now
 exit 0
 RUNNER_EOF
   chmod +x "$RUNNER_SCRIPT"
@@ -312,12 +317,12 @@ fi
 
 # Start tmux + claude interactive
 if [[ "$TARGET" == "ssh" ]]; then
-  ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; tmux -S '$SOCKET' new -d -s '$SESSION' -n shell"
-  ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; tmux -S '$SOCKET' send-keys -t '$SESSION':0.0 -l -- 'unset CLAUDECODE && cd $WORKDIR && claude --dangerously-skip-permissions'"
-  ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; tmux -S '$SOCKET' send-keys -t '$SESSION':0.0 Enter"
+  ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH; tmux -S '$SOCKET' new -d -s '$SESSION' -n shell"
+  ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH; tmux -S '$SOCKET' send-keys -t '$SESSION':0.0 -l -- 'unset CLAUDECODE && cd \"$WORKDIR\" && claude --dangerously-skip-permissions'"
+  ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH; tmux -S '$SOCKET' send-keys -t '$SESSION':0.0 Enter"
 else
   tmux -S "$SOCKET" new -d -s "$SESSION" -n shell
-  tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -l -- "unset CLAUDECODE && cd $WORKDIR && claude --dangerously-skip-permissions"
+  tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -l -- "unset CLAUDECODE && cd \"$WORKDIR\" && claude --dangerously-skip-permissions"
   tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 Enter
 fi
 
@@ -344,7 +349,7 @@ fi
 ready=false
 for _ in {1..30}; do
   if [[ "$TARGET" == "ssh" ]]; then
-    pane="$(ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; tmux -S '$SOCKET' capture-pane -p -J -t '$SESSION':0.0 -S -60" || true)"
+    pane="$(ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH; tmux -S '$SOCKET' capture-pane -p -J -t '$SESSION':0.0 -S -60" || true)"
   else
     pane="$(tmux -S "$SOCKET" capture-pane -p -J -t "$SESSION":0.0 -S -60 || true)"
   fi
@@ -362,7 +367,7 @@ fi
 # Paste prompt
 if [[ "$TARGET" == "ssh" ]]; then
   prompt_text="$(cat "$PROMPT_TMP")"
-  ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; tmux -S '$SOCKET' send-keys -t '$SESSION':0.0 -l -- $(python3 - <<'PY'
+  ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH; tmux -S '$SOCKET' send-keys -t '$SESSION':0.0 -l -- $(python3 - <<'PY'
 import shlex,sys
 s=sys.stdin.read()
 print(shlex.quote(s))
@@ -377,9 +382,9 @@ fi
 submitted=false
 for _ in {1..4}; do
   if [[ "$TARGET" == "ssh" ]]; then
-    ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; tmux -S '$SOCKET' send-keys -t '$SESSION':0.0 Enter"
+    ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH; tmux -S '$SOCKET' send-keys -t '$SESSION':0.0 Enter"
     sleep 1
-    pane_after="$(ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; tmux -S '$SOCKET' capture-pane -p -J -t '$SESSION':0.0 -S -120" || true)"
+    pane_after="$(ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH; tmux -S '$SOCKET' capture-pane -p -J -t '$SESSION':0.0 -S -120" || true)"
   else
     tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 Enter
     sleep 1
