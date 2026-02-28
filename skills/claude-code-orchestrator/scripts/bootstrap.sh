@@ -13,15 +13,36 @@ echo "=== OpenClaw Claude Code Orchestrator — Bootstrap ==="
 echo ""
 
 errors=0
+warnings=0
 
-# Check required tools
-for tool in tmux claude rg python3 git; do
+# --- Required tools (missing = fatal) ---
+echo "Required tools:"
+for tool in tmux claude openclaw rg jq python3 git; do
   if command -v "$tool" >/dev/null 2>&1; then
     version="$("$tool" --version 2>/dev/null | head -1 || echo "ok")"
     echo "  [OK] $tool → $version"
   else
-    echo "  [MISSING] $tool — please install before using the orchestrator"
+    echo "  [MISSING] $tool — required; please install before using the orchestrator"
     errors=$((errors + 1))
+  fi
+done
+
+echo ""
+
+# --- Optional tools (missing = warn, non-fatal) ---
+echo "Optional tools (needed for specific features):"
+for tool in ssh scp npm pnpm yarn; do
+  if command -v "$tool" >/dev/null 2>&1; then
+    version="$("$tool" --version 2>/dev/null | head -1 || echo "ok")"
+    echo "  [OK] $tool → $version"
+  else
+    case "$tool" in
+      ssh|scp) hint="needed for --target ssh (remote execution)" ;;
+      npm|pnpm|yarn) hint="needed only if you pass --lint-cmd / --build-cmd" ;;
+      *) hint="" ;;
+    esac
+    echo "  [WARN] $tool not found — $hint"
+    warnings=$((warnings + 1))
   fi
 done
 
@@ -51,11 +72,15 @@ done
 echo ""
 
 if [[ "$errors" -gt 0 ]]; then
-  echo "RESULT: $errors issue(s) found. Fix them before running tasks."
+  echo "RESULT: $errors required tool(s) missing. Fix them before running tasks."
   exit 1
 fi
 
-echo "RESULT: All checks passed."
+if [[ "$warnings" -gt 0 ]]; then
+  echo "RESULT: All required checks passed ($warnings optional tool(s) not found — see above)."
+else
+  echo "RESULT: All checks passed."
+fi
 
 # Dry-run: create and destroy a tmux session
 if [[ "$DRY_RUN" == true ]]; then
