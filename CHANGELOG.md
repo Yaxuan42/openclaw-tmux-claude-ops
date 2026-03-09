@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026.3.9
+
+### Changes (EN)
+
+- **SKILL.md rewrite**: broadened trigger description for better skill activation coverage (monitoring, multi-task, headless, diagnosis, history analysis scenarios).
+- Added **Concepts section** to SKILL.md — explicitly defines `{baseDir}`, session naming, reports, wake, and runs directory conventions.
+- Added **parameter table** documenting all `start-tmux-task.sh` optional parameters (`--mode`, `--lint-cmd`, `--build-cmd`, `--target`, `--ssh-host`, `--socket`, `--mini-host`).
+- Enhanced **status check** with table format and **timeout guidance** (15/30/60 min escalation tiers).
+- Added **Error recovery** section covering crash, stuck, and wake-lost scenarios with concrete shell commands.
+- Removed dead code: unused `tmux_cmd()` / `tmux_capture()` functions from `start-tmux-task.sh` (-16 lines).
+
+### 变更（中文）
+
+- **SKILL.md 重写**：扩展触发描述，覆盖监控、多任务、headless、诊断、历史分析等场景，提升技能激活准确率。
+- 新增 **Concepts 段**，明确定义 `{baseDir}`、session 命名、reports、wake、runs 目录等核心概念。
+- 新增 **参数表**，文档化 `start-tmux-task.sh` 的 7 个可选参数。
+- **状态检测**升级为表格格式，新增**超时指导**（15/30/60 分钟分级处置）。
+- 新增 **Error recovery 段**，覆盖 crash、stuck、wake 丢失三种场景的具体操作步骤。
+- 移除死代码：`start-tmux-task.sh` 中从未调用的 `tmux_cmd()` / `tmux_capture()` 函数（-16 行）。
+
+---
+
 ## 2026.2.28
 
 ### Changes (EN)

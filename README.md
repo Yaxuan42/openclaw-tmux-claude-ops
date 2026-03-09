@@ -366,6 +366,15 @@ skills/claude-code-orchestrator/runs/<label>/
 
 ---
 
+## 最近改进（2026-03-09）
+
+- **SKILL.md 重写**：扩展触发描述、新增 Concepts 段（定义 `{baseDir}` 等核心概念）、参数表、超时指导、Error recovery 段
+- **死代码清理**：移除 `start-tmux-task.sh` 中未使用的函数
+
+详见 [CHANGELOG.md](./CHANGELOG.md)。
+
+---
+
 ## 说明与边界
 
 - 主线默认单机即可跑出质变；如果引入远程/多设备执行，请用最小权限控制 SSH key
