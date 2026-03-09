@@ -1,6 +1,6 @@
 ---
 name: claude-code-orchestrator
-description: Trigger Claude Code development tasks in observable tmux sessions with stable startup, progress visibility, and completion callback to OpenClaw. Use when user asks to run coding work via Claude Code and wants to SSH in, monitor progress, and get auto-notified for review after completion.
+description: Orchestrate Claude Code development tasks in observable tmux sessions — start, monitor, check status, diagnose failures, and collect completion reports with callback to OpenClaw. Use this skill whenever the user wants to run coding work via Claude Code in the background, manage multiple parallel coding tasks, SSH into a remote machine to trigger dev work, check on running tasks, review completion reports, diagnose task failures, analyze task history, or coordinate OpenClaw with Claude Code. Also use when the user mentions tmux sessions for AI tasks, task dashboards, headless mode, or "butler-style" summaries of running jobs.
 metadata:
   openclaw:
     requires:
@@ -32,6 +32,14 @@ This verifies dependencies and tests the tmux session lifecycle without running 
 
 Use tmux-based orchestration for long coding tasks to avoid silent hangs and make progress observable.
 
+## Concepts
+
+- **`{baseDir}`**: The root of this skill's directory — wherever `skills/claude-code-orchestrator/` lives on disk. All script paths below are relative to `{baseDir}/scripts/`.
+- **Session naming**: Every task gets a tmux session named `cc-<label>`.
+- **Reports**: Every task must produce `runs/<label>/completion-report.json` and `.md`.
+- **Wake**: A callback signal sent to OpenClaw after reports are written. Wake is the *trigger*, not the delivery itself.
+- **Runs directory**: Each task's artifacts live in `{baseDir}/runs/<label>/` — prompts, logs, reports, diagnosis.
+
 ## Default Project Directory
 
 **新项目默认创建在：**
@@ -61,6 +69,18 @@ bash {baseDir}/scripts/start-tmux-task.sh \
   --prompt-file "/Users/yaxuan/Downloads/gallery-website-design-system.md" \
   --task "参考这个修改我当前的画廊官网，注意优先打磨细节和质感，对整体结构展示先不用大改。"
 ```
+
+### Optional parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `--mode` | `interactive` | `interactive` (TUI, can attach) or `headless` (claude -p, stream-json) |
+| `--lint-cmd` | auto-detect from package.json | Custom lint command. Pass `""` to skip. |
+| `--build-cmd` | auto-detect from package.json | Custom build command. Pass `""` to skip. |
+| `--target` | `local` | `local` or `ssh` (remote execution) |
+| `--ssh-host` | — | SSH alias for remote host (required when `--target ssh`) |
+| `--mini-host` | `mini` | SSH alias for Mac mini (wake callback target) |
+| `--socket` | `$TMPDIR/clawdbot-tmux-sockets/clawdbot.sock` | Custom tmux socket path |
 
 ## Headless mode (non-interactive)
 
@@ -174,11 +194,21 @@ bash {baseDir}/scripts/status-tmux-task.sh --label <label>
 
 Output: `STATUS=running|likely_done|stuck|idle|dead|done_session_ended`
 
-- `likely_done` / `done_session_ended` → proceed to completion loop
-- `running` → wait
-- `stuck` → inspect (attach or capture-pane)
-- `dead` → session lost, run complete-tmux-task.sh fallback
-- `idle` → Claude may be waiting for input, inspect
+| Status | Meaning | Action |
+|--------|---------|--------|
+| `running` | Claude is actively working | Wait |
+| `likely_done` | Completion signals detected | Proceed to completion loop |
+| `done_session_ended` | Session ended, report exists | Proceed to completion loop |
+| `stuck` | Errors detected in output | Inspect via attach or capture-pane, or run `diagnose-failure.sh` |
+| `idle` | Claude may be waiting for input | Inspect — may need manual Enter |
+| `dead` | Session gone, no report | Run `complete-tmux-task.sh` as fallback |
+
+### Timeout guidance
+
+- **< 15 min**: Normal for most tasks. Status = `running` → wait.
+- **15–30 min**: Run status check. If `running`, capture last 200 lines to verify progress.
+- **> 30 min**: Likely stuck. Attach and inspect. If Claude is looping, run `diagnose-failure.sh`.
+- **> 60 min**: `timeout-guard.sh` will auto-trigger at 2h, but consider manual intervention earlier.
 
 ## Completion loop (mandatory)
 
@@ -218,9 +248,46 @@ Do not stop at wake-only notification. Wake is trigger, not final delivery.
 - Delivery SLA remains mandatory:
   - wake received -> ack <= 60s -> report
 
+## Error recovery
+
+### Claude exits or crashes mid-task
+
+```bash
+# 1. Check status (on-session-exit.sh may have already auto-diagnosed)
+bash {baseDir}/scripts/status-tmux-task.sh --label <label>
+
+# 2. If no auto-diagnosis, run manual diagnosis
+bash {baseDir}/scripts/diagnose-failure.sh --label <label>
+
+# 3. Salvage partial work
+bash {baseDir}/scripts/complete-tmux-task.sh --label <label> --workdir <dir>
+```
+
+### Session is stuck (no progress)
+
+```bash
+# 1. Capture current state
+bash {baseDir}/scripts/monitor-tmux-task.sh --session cc-<label> --lines 300
+
+# 2. Run diagnosis to identify the pattern (edit_loop, rate_limit, etc.)
+bash {baseDir}/scripts/diagnose-failure.sh --label <label>
+
+# 3. Based on diagnosis:
+#    - edit_loop → kill session, start fresh with refined prompt
+#    - rate_limit → wait and retry
+#    - context_overflow → split task into smaller subtasks
+```
+
+### Wake sent but not received
+
+If a task shows `likely_done` but OpenClaw never got the wake:
+- Check report exists: `cat runs/<label>/completion-report.json`
+- Check TASK_HISTORY.jsonl for the entry
+- Proceed with completion loop manually
+
 ---
 
-## 闭环反馈系统（新增）
+## 闭环反馈系统
 
 任务执行现在会自动记录历史和执行日志，用于持续优化派活策略。
 

@@ -102,22 +102,6 @@ if rg -n "openclaw\s+gateway\s+wake\s+--text" "$PROMPT_FILE" >/dev/null 2>&1 || 
   exit 2
 fi
 
-tmux_cmd() {
-  if [[ "$TARGET" == "ssh" ]]; then
-    ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH; $*"
-  else
-    bash -lc "$*"
-  fi
-}
-
-tmux_capture() {
-  if [[ "$TARGET" == "ssh" ]]; then
-    ssh -o BatchMode=yes "$SSH_HOST" "export PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH; $*"
-  else
-    bash -lc "$*"
-  fi
-}
-
 # Ensure socket dir exists on target
 if [[ "$TARGET" == "ssh" ]]; then
   ssh -o BatchMode=yes "$SSH_HOST" "mkdir -p '$SOCKET_DIR'"
